@@ -31,7 +31,7 @@ authors:
 
 poll_interval: "5m"
 claude_bin: claude
-terminal: iterm  # or "ghostty"
+terminal: iterm  # or "ghostty" or "kitty"
 
 # Prefix for feature branches created by `zen work new`.
 # If unset, falls back to `git config user.name` (spaces → hyphens), then no prefix.
@@ -74,7 +74,7 @@ All repos and authors must be configured — there are no hardcoded defaults.
 
 ## Terminal
 
-`terminal: iterm` (default) or `terminal: ghostty`.
+`terminal: iterm` (default), `terminal: ghostty`, or `terminal: kitty`.
 
 For Ghostty tab creation on macOS:
 
@@ -84,6 +84,11 @@ For Ghostty tab creation on macOS:
 4. **Ghostty focus** — the window should be focused for reliable tab creation.
 
 If any of these aren't met, zen falls back to opening new windows.
+
+kitty (Linux and macOS) opens each session in a new OS window. When zen runs
+from inside kitty with `allow_remote_control yes` set in `kitty.conf` (or a
+socket configured via `listen_on`), the window is opened from the running
+kitty instance; otherwise zen starts a separate kitty instance per session.
 
 ## State files
 
