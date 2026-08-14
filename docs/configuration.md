@@ -30,7 +30,12 @@ authors:
   - wlynch
 
 poll_interval: "5m"
-claude_bin: claude
+
+# Which coding agent zen launches in worktrees: "claude" (default) or "codex".
+agent: claude
+claude_bin: claude   # executable used when agent: claude
+codex_bin: codex     # executable used when agent: codex
+
 terminal: iterm  # or "ghostty" or "kitty"
 
 # Prefix for feature branches created by `zen work new`.
@@ -72,6 +77,32 @@ repos:
 
 All repos and authors must be configured — there are no hardcoded defaults.
 
+## Agent
+
+`agent: claude` (default) or `agent: codex` selects the coding agent zen launches in each worktree. Override per command with `--agent`:
+
+```bash
+zen review 42 --agent codex
+zen work new app my-feature --agent codex
+zen review resume 42 --agent codex
+```
+
+What changes per agent:
+
+| | `claude` | `codex` |
+|--|----------|---------|
+| Launch / resume | `claude … --resume <id>` | `codex … / codex resume <uuid>` |
+| Model flag | `--model` | `-m` |
+| Context file | `CLAUDE.local.md` | `AGENTS.md`, or `.zen/PR_CONTEXT.md` if the repo already ships an `AGENTS.md` |
+| Slash-command prompts | `~/.claude/commands/` | `~/.codex/prompts/` |
+| Sessions on disk | `~/.claude/projects/<encoded-path>/*.jsonl` | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` |
+
+zen never overwrites a repo's committed `AGENTS.md`; if one exists, the context goes to `.zen/PR_CONTEXT.md` instead. The zen-owned `.zen/` directory is added to the repo's shared `info/exclude` (git has no per-worktree exclude file), while an injected `AGENTS.md` shows as an untracked file — the same way Claude's injected `CLAUDE.local.md` does. The `--model` value is passed through verbatim, so use model names your chosen agent understands (e.g. `opus` for Claude, `gpt-5-codex` for Codex).
+
+Note that the background daemon always uses the **configured** agent: if you run `zen review 42 --agent codex` while `agent: claude` is set in config, the daemon's context injection and session tracking for that worktree still act as Claude. Set `agent:` in config when switching agents for more than a one-off session.
+
+`zen agent status` (and the `zen_agent_status` MCP tool) is the exception to single-agent behaviour: it lists sessions from **all** agents in one table with an AGENT column; pass `--agent claude|codex` to narrow it. "waiting" detection comes from the daemon's snapshot and is only available for the configured agent — other agents' sessions show as running/stopped.
+
 ## Terminal
 
 `terminal: iterm` (default), `terminal: ghostty`, or `terminal: kitty`.
@@ -100,4 +131,4 @@ All state lives in `~/.zen/state/`:
 | `watch.log` | Daemon logs (rotated at 10MB; previous log kept as `watch.log.1`) |
 | `last_check.json` | Timestamp of last GitHub poll |
 | `pr_cache.json` | PR titles/authors for display |
-| `sessions.json` | Cached Claude session states (updated every 10s by daemon) |
+| `sessions.json` | Cached agent session states (updated every 10s by daemon) |

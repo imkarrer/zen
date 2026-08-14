@@ -12,6 +12,7 @@ import (
 	"time"
 
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
+	"github.com/mgreau/zen/internal/agent"
 	ghpkg "github.com/mgreau/zen/internal/github"
 	"github.com/mgreau/zen/internal/reconciler"
 	"github.com/mgreau/zen/internal/review"
@@ -119,6 +120,7 @@ func (s *Server) handlePRFiles(ctx context.Context, req mcpgo.CallToolRequest) (
 
 // agentStatusEntry holds one row of agent status output for MCP.
 type agentStatusEntry struct {
+	Agent        string `json:"agent"`
 	Worktree     string `json:"worktree"`
 	SessionID    string `json:"session_id"`
 	Status       string `json:"status"`
@@ -129,49 +131,65 @@ type agentStatusEntry struct {
 	LastActive   string `json:"last_active"`
 }
 
-// handleAgentStatus lists Claude sessions across worktrees.
-// Uses cached session snapshot when available, falls back to real-time scanning.
+// handleAgentStatus lists every agent's sessions across worktrees. The daemon
+// snapshot only tracks the configured agent, so it substitutes for that
+// agent's scan only; other agents are always scanned in real time.
 func (s *Server) handleAgentStatus(ctx context.Context, req mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 	runningOnly := req.GetBool("running_only", false)
 
-	var entries []agentStatusEntry
+	kinds := []agent.Kind{agent.Claude, agent.Codex}
+	configured := agent.Kind(s.cfg.AgentKind(""))
 
-	// Try cached snapshot first — only use if it contains paths matching our config
+	// The snapshot is only usable if it is fresh and contains paths matching our config
 	snapshot, _ := reconciler.ReadSessionSnapshot()
 	basePaths := s.cfg.AllBasePaths()
-	if reconciler.IsSnapshotFresh(snapshot, 60*time.Second) && reconciler.SnapshotMatchesConfig(snapshot, basePaths) {
-		for _, ss := range snapshot.Sessions {
-			if runningOnly && ss.Status == "stopped" {
-				continue
+	cacheFresh := reconciler.IsSnapshotFresh(snapshot, 60*time.Second) &&
+		reconciler.SnapshotMatchesConfig(snapshot, basePaths)
+
+	var wts []worktree.Worktree
+	for _, k := range kinds {
+		if !cacheFresh || k != configured {
+			var err error
+			wts, err = worktree.ListAll(s.cfg)
+			if err != nil {
+				return mcpgo.NewToolResultError("failed to list worktrees: " + err.Error()), nil
 			}
-			entries = append(entries, agentStatusEntry{
-				Worktree:     ss.WorktreePath,
-				SessionID:    ss.SessionID,
-				Status:       ss.Status,
-				Size:         ss.Size,
-				Model:        ss.Model,
-				InputTokens:  ss.InputTokens,
-				OutputTokens: ss.OutputTokens,
-				LastActive:   session.FormatAge(time.Unix(ss.LastModified, 0)),
-			})
+			break
 		}
-	} else {
-		// Fall back to real-time scanning
-		wts, err := worktree.ListAll(s.cfg)
-		if err != nil {
-			return mcpgo.NewToolResultError("failed to list worktrees: " + err.Error()), nil
+	}
+
+	var entries []agentStatusEntry
+	for _, k := range kinds {
+		if cacheFresh && k == configured {
+			for _, ss := range snapshot.Sessions {
+				if runningOnly && ss.Status == "stopped" {
+					continue
+				}
+				entries = append(entries, agentStatusEntry{
+					Agent:        string(k),
+					Worktree:     ss.WorktreePath,
+					SessionID:    ss.SessionID,
+					Status:       ss.Status,
+					Size:         ss.Size,
+					Model:        ss.Model,
+					InputTokens:  ss.InputTokens,
+					OutputTokens: ss.OutputTokens,
+					LastActive:   session.FormatAge(time.Unix(ss.LastModified, 0)),
+				})
+			}
+			continue
 		}
 
+		ag := s.cfg.NewAgent(string(k))
 		for _, wt := range wts {
-			sessions, _ := session.FindSessions(wt.Path)
+			sessions, _ := ag.FindSessions(wt.Path)
 			if len(sessions) == 0 {
 				continue
 			}
 
 			sess := sessions[0]
-			filePath := session.SessionFilePath(wt.Path, sess.ID)
-			model, tokens, _ := session.ParseSessionDetailTail(filePath)
-			running := session.IsProcessRunning(sess.ID)
+			model, tokens, _ := ag.ParseTokensTail(sess.Path)
+			running := ag.IsProcessRunning(sess.ID)
 
 			if runningOnly && !running {
 				continue
@@ -185,11 +203,12 @@ func (s *Server) handleAgentStatus(ctx context.Context, req mcpgo.CallToolReques
 			lastActive := time.Unix(sess.Modified, 0)
 
 			entries = append(entries, agentStatusEntry{
+				Agent:        string(k),
 				Worktree:     wt.Path,
 				SessionID:    sess.ID,
 				Status:       status,
 				Size:         sess.SizeStr,
-				Model:        session.ShortenModel(model),
+				Model:        ag.ShortenModel(model),
 				InputTokens:  session.FormatTokenCount(tokens.InputTokens),
 				OutputTokens: session.FormatTokenCount(tokens.OutputTokens),
 				LastActive:   session.FormatAge(lastActive),
@@ -226,7 +245,7 @@ func (s *Server) handleReview(ctx context.Context, req mcpgo.CallToolRequest) (*
 	}
 
 	// Pass nil logger -- MCP must not write to stdout
-	result, err := review.CreateWorktree(ctx, s.cfg, repoShort, prNumber, nil)
+	result, err := review.CreateWorktree(ctx, s.cfg, s.cfg.NewAgent(""), repoShort, prNumber, nil)
 	if err != nil {
 		return mcpgo.NewToolResultError(err.Error()), nil
 	}
@@ -253,9 +272,10 @@ func (s *Server) handleReviewResume(ctx context.Context, req mcpgo.CallToolReque
 		return mcpgo.NewToolResultError("failed to list worktrees: " + err.Error()), nil
 	}
 
+	ag := s.cfg.NewAgent("")
 	for _, wt := range wts {
 		if wt.Type == worktree.TypePRReview && wt.PRNumber == prNumber {
-			sessions, _ := session.FindSessions(wt.Path)
+			sessions, _ := ag.FindSessions(wt.Path)
 			if sessions == nil {
 				sessions = []session.Session{}
 			}
@@ -313,12 +333,12 @@ type whoAmIWorktreeEntry struct {
 
 // whoAmISummary holds the complete who-am-i response.
 type whoAmISummary struct {
-	Period      string                `json:"period"`
-	Since       string                `json:"since"`
-	Repos       []string              `json:"repos"`
-	Merged      []whoAmIMergedEntry   `json:"merged"`
-	InProgress  []whoAmIWorktreeEntry `json:"in_progress"`
-	PRReviews   []whoAmIWorktreeEntry `json:"pr_reviews"`
+	Period     string                `json:"period"`
+	Since      string                `json:"since"`
+	Repos      []string              `json:"repos"`
+	Merged     []whoAmIMergedEntry   `json:"merged"`
+	InProgress []whoAmIWorktreeEntry `json:"in_progress"`
+	PRReviews  []whoAmIWorktreeEntry `json:"pr_reviews"`
 }
 
 // handleWhoAmI returns a summary of work done across repos.
@@ -373,6 +393,7 @@ func (s *Server) handleWhoAmI(ctx context.Context, req mcpgo.CallToolRequest) (*
 		return mcpgo.NewToolResultError("failed to list worktrees: " + err.Error()), nil
 	}
 
+	ag := s.cfg.NewAgent("")
 	var inProgress, prReviews []whoAmIWorktreeEntry
 	for _, wt := range wts {
 		if repoFilter != "" && wt.Repo != repoFilter {
@@ -380,8 +401,9 @@ func (s *Server) handleWhoAmI(ctx context.Context, req mcpgo.CallToolRequest) (*
 		}
 
 		commits := whoamiCountCommits(wt.Path, since)
-		hasSession := session.HasActiveSession(wt.Path)
-		if commits == 0 && !whoamiHasRecentSession(wt.Path, since) {
+		sessions, _ := ag.FindSessions(wt.Path)
+		hasSession := len(sessions) > 0
+		if commits == 0 && !whoamiHasRecentSession(sessions, since) {
 			continue
 		}
 
@@ -524,8 +546,7 @@ func whoamiLastCommit(wtPath string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func whoamiHasRecentSession(wtPath string, since time.Time) bool {
-	sessions, _ := session.FindSessions(wtPath)
+func whoamiHasRecentSession(sessions []session.Session, since time.Time) bool {
 	if len(sessions) == 0 {
 		return false
 	}

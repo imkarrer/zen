@@ -13,9 +13,10 @@ import (
 	"time"
 )
 
-// Session represents a Claude Code session file.
+// Session represents an agent session file (Claude .jsonl or Codex rollout).
 type Session struct {
 	ID       string `json:"id"`
+	Path     string `json:"path"` // absolute path to the session file on disk
 	Modified int64  `json:"modified_epoch"`
 	ModHuman string `json:"modified"`
 	Size     int64  `json:"size"`
@@ -46,6 +47,7 @@ func FindSessions(worktreePath string) ([]Session, error) {
 		id := strings.TrimSuffix(entry.Name(), ".jsonl")
 		sessions = append(sessions, Session{
 			ID:       id,
+			Path:     filepath.Join(claudeDir, entry.Name()),
 			Modified: info.ModTime().Unix(),
 			ModHuman: info.ModTime().Format("2006-01-02 15:04"),
 			Size:     info.Size(),
@@ -59,13 +61,6 @@ func FindSessions(worktreePath string) ([]Session, error) {
 	})
 
 	return sessions, nil
-}
-
-// HasActiveSession checks if a worktree has any Claude session files.
-// This is a lightweight check - it doesn't verify if the session is running.
-func HasActiveSession(worktreePath string) bool {
-	sessions, _ := FindSessions(worktreePath)
-	return len(sessions) > 0
 }
 
 // ProjectDir returns the Claude projects directory for a worktree path.
@@ -120,7 +115,7 @@ type jsonLine struct {
 }
 
 type jsonMessage struct {
-	Model string    `json:"model,omitempty"`
+	Model string     `json:"model,omitempty"`
 	Usage *jsonUsage `json:"usage,omitempty"`
 }
 
@@ -134,12 +129,6 @@ type jsonUsage struct {
 // tailSize is the number of bytes to read from the end of a session file
 // for fast (non-full) parsing.
 const tailSize = 64 * 1024
-
-// SessionFilePath returns the full filesystem path for a session .jsonl file.
-func SessionFilePath(worktreePath, sessionID string) string {
-	projectDirName := pathToClaudeProject(worktreePath)
-	return filepath.Join(os.Getenv("HOME"), ".claude", "projects", projectDirName, sessionID+".jsonl")
-}
 
 // IsProcessRunning checks if a Claude process is running for the given session ID
 // by looking for a process whose command line contains the session ID.
