@@ -36,7 +36,7 @@ agent: claude
 claude_bin: claude   # executable used when agent: claude
 codex_bin: codex     # executable used when agent: codex
 
-terminal: iterm  # or "ghostty" or "kitty"
+terminal: iterm  # or "ghostty", "kitty", or "macos"
 
 # Prefix for feature branches created by `zen work new`.
 # If unset, falls back to `git config user.name` (spaces → hyphens), then no prefix.
@@ -109,7 +109,7 @@ Note that the background daemon always uses the **configured** agent: if you run
 
 ## Terminal
 
-`terminal: iterm` (default), `terminal: ghostty`, or `terminal: kitty`.
+`terminal: iterm` (default), `terminal: ghostty`, `terminal: kitty`, or `terminal: macos`.
 
 For Ghostty tab creation on macOS:
 
@@ -124,6 +124,9 @@ kitty (Linux and macOS) opens each session in a new OS window. When zen runs
 from inside kitty with `allow_remote_control yes` set in `kitty.conf` (or a
 socket configured via `listen_on`), the window is opened from the running
 kitty instance; otherwise zen starts a separate kitty instance per session.
+
+`terminal: macos` uses the built-in macOS Terminal.app. If Terminal already has
+a window, zen opens a new tab; if none exist, it opens a new window. macOS-only.
 
 ## State files
 

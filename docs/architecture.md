@@ -101,13 +101,14 @@ zen
 │   ├── github/                   # GitHub API (GraphQL + REST, 30s call timeouts)
 │   ├── iterm/                    # iTerm2 tab management via AppleScript
 │   ├── kitty/                    # kitty window management via kitty CLI (Linux + macOS)
+│   ├── macos/                    # Terminal.app tab/window management via AppleScript
 │   ├── mcp/                      # MCP server exposing zen tools
 │   ├── notify/                   # Desktop notifications (osascript on macOS, notify-send on Linux)
 │   ├── prcache/                  # Lightweight PR metadata cache (JSON)
 │   ├── reconciler/               # Workqueue-based PR setup + cleanup + session scan
 │   ├── review/                   # Shared worktree creation logic (CLI + MCP)
 │   ├── session/                  # Shared session types + Claude session detection
-│   ├── terminal/                 # Terminal backend abstraction (iterm/ghostty/kitty)
+│   ├── terminal/                 # Terminal backend abstraction (iterm/ghostty/kitty/macos)
 │   ├── ui/                       # Terminal formatting
 │   └── worktree/                 # Git worktree discovery + management
 ├── main.go
