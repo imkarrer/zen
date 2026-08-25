@@ -24,20 +24,19 @@ For every PR in your review queue and every feature you're working on, zen creat
 
 ## Quick start
 
-**Install with Flox** (any Flox environment, including a workstation env):
+**nix-darwin** (system PATH — same slot as a Flox CLI, not a Flox package):
 
-```bash
-flox install github:imkarrer/zen
+```nix
+# flake.nix
+inputs.zen.url = "github:imkarrer/zen";
+
+# darwin/packages.nix
+environment.systemPackages = [
+  inputs.zen.packages.${pkgs.system}.default
+];
 ```
 
-Or declare it in that environment's `manifest.toml` and let Flox lock the revision:
-
-```toml
-[install]
-zen.flake = "github:imkarrer/zen"
-git.pkg-path = "git"   # zen shells out to git
-gh.pkg-path = "gh"     # zen shells out to gh
-```
+Then `darwin-rebuild switch`. The derivation wraps `git` and `gh`, so `zen watch` and `zen mcp serve` work when Flox is not activated. `~/.zen/config.yaml` is still created by `zen setup` (not Nix).
 
 **Build from source:**
 
@@ -277,28 +276,26 @@ zen context inject <path> --pr 42 --repo app
 | **[GitHub CLI](https://cli.github.com/) (`gh`)** | Authentication and GitHub API access — must be logged in (`gh auth login`) |
 | **[iTerm2](https://iterm2.com/)**, **[Ghostty](https://ghostty.io/)**, or **[kitty](https://sw.kovidgoyal.net/kitty/)** | Opens review/work sessions in new tabs (iTerm2/Ghostty) or OS windows (kitty). Ghostty needs accessibility permissions for tab creation and falls back to new windows otherwise (see [docs/configuration.md](docs/configuration.md#terminal)) |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or [Codex](https://developers.openai.com/codex/cli) (`codex`)** | AI-assisted PR reviews and coding sessions — pick one with `agent:` in config (see [Configuration](#configuration)) |
-| **Go 1.25+** | Building from source — skip if you install the binary with Flox (see [Building](#building)) |
-| **[Flox](https://flox.dev)** (optional) | Install `zen` into another env (`flox install github:imkarrer/zen`), or `flox activate` here for a pinned toolchain |
+| **Go 1.25+** | Building from source — skip if you install via nix-darwin (see [Building](#building)) |
+| **[Flox](https://flox.dev)** (optional) | Pinned toolchain in this repo: `flox activate` then `make build`. Not how zen is installed on a workstation |
 
 ## Building
 
-### Install the binary with Flox
+### Install via nix-darwin
 
-`zen` is a Nix flake (`packages.default`) and a Flox Nix-expression build (`.flox/pkgs/zen.nix`). Other Flox environments can install it without cloning this repo:
+The product is a Nix flake (`packages.default`), built from `.flox/pkgs/zen.nix`. Put it on the **system** PATH (nix-darwin `environment.systemPackages`), not in a Flox manifest: Flox only injects tools into interactive zsh, and zen’s watch daemon, MCP server, and some terminal backends run without that hook. The package wraps `git` and `gh` so those subprocesses do not depend on Flox either.
 
-```bash
-flox install github:imkarrer/zen
-# equivalent declarative install:
-#   zen.flake = "github:imkarrer/zen"
+```nix
+inputs.zen.url = "github:imkarrer/zen";
+# in darwin/packages.nix:
+#   inputs.zen.packages.${pkgs.system}.default
 ```
-
-`git` and `gh` must also be on `PATH` (install them in the same environment). Flox locks the flake revision in that environment's `manifest.lock`.
 
 To build the package in this repo:
 
 ```
-flox build          # → ./result-zen/bin/zen
-# or: nix build     # → ./result/bin/zen
+nix build           # → ./result/bin/zen
+# or: flox build    # → ./result-zen/bin/zen
 ```
 
 ### From source

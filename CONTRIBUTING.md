@@ -6,7 +6,7 @@
 make build
 ```
 
-Builds the `zen` binary with version + commit SHA stamped via ldflags. With the Flox environment activated, `flox build` produces the same binary at `./result-zen/bin/zen` from `.flox/pkgs/zen.nix`. Or manually:
+Builds the `zen` binary with version + commit SHA stamped via ldflags. The installable package is `.flox/pkgs/zen.nix` (`flox build` → `./result-zen/bin/zen`, or `nix build`); it wraps `git` and `gh` so nix-darwin / the watch daemon do not need Flox on PATH. Or manually:
 
 ```
 go build -o zen .

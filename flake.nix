@@ -15,15 +15,14 @@
       forAllSystems = nixpkgs.lib.genAttrs systems;
       gitCommit = self.shortRev or self.dirtyShortRev or "dirty";
       version = self.shortRev or self.dirtyShortRev or "dev";
-    in
-    {
-      packages = forAllSystems (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
+
+      mkZen =
+        pkgs:
+        (pkgs.callPackage ./.flox/pkgs/zen.nix {
           buildGoModule =
             pkgs.buildGo125Module or (pkgs.buildGoModule.override { go = pkgs.go_1_25; });
-          zen = (pkgs.callPackage ./.flox/pkgs/zen.nix { inherit buildGoModule; }).overrideAttrs {
+        }).overrideAttrs
+          {
             inherit version;
             src = self;
             ldflags = [
@@ -33,6 +32,17 @@
               "-X github.com/mgreau/zen/cmd.Commit=${gitCommit}"
             ];
           };
+    in
+    {
+      # For nix-darwin: inputs.zen.packages.${pkgs.system}.default
+      overlays.default = final: _prev: {
+        zen = mkZen final;
+      };
+
+      packages = forAllSystems (
+        system:
+        let
+          zen = mkZen nixpkgs.legacyPackages.${system};
         in
         {
           inherit zen;
