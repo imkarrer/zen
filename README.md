@@ -35,6 +35,8 @@ zen watch start                    # background daemon polls GitHub for PRs
 zen inbox                          # see what needs your attention
 ```
 
+- Alternatively, skip `mv zen ~/bin` and [install with Nix](#install-with-nix).
+
 When a PR shows up in your inbox, `zen review <number>` opens that PR in a new terminal tab with Claude pre-armed and the PR context loaded. See [Prerequisites](#prerequisites) for what to install first.
 
 ## What needs your attention?
@@ -261,17 +263,34 @@ zen context inject <path> --pr 42 --repo app
 
 ## Building
 
-With [Flox](https://flox.dev) installed, `flox activate` provides Go 1.25.7, Git, GitHub CLI, and GNU Make (module cache stays in the environment, not your home GOPATH):
-
 ```
-flox activate
+flox activate    # optional: pinned Go 1.25.7, git, gh, make
 make build
 ```
 
-Without Flox:
+### Install with Nix
 
+For people who already use [Nix](https://nixos.org): a flake in this repo builds `zen` for Linux and macOS (`packages.default`, with `git`/`gh` wrapped in). This is an alternative to `mv zen ~/bin`, not a required dependency. `zen setup` still writes `~/.zen/config.yaml`.
+
+**NixOS or nix-darwin** (`environment.systemPackages`):
+
+```nix
+# flake.nix
+inputs.zen.url = "github:mgreau/zen";
+
+# configuration.nix / darwin/packages.nix
+environment.systemPackages = [
+  inputs.zen.packages.${pkgs.system}.default
+];
 ```
-make build
+
+**home-manager:** `home.packages = [ inputs.zen.packages.${pkgs.system}.default ];`
+
+**Any Nix install:**
+
+```bash
+nix profile install github:mgreau/zen
+# or one-off: nix run github:mgreau/zen -- version
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for testing and architecture pointers.
