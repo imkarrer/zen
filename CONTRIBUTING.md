@@ -6,7 +6,7 @@
 make build
 ```
 
-Builds the `zen` binary with version + commit SHA stamped via ldflags. Or manually:
+Builds the `zen` binary with version + commit SHA stamped via ldflags. With the Flox environment activated, `flox build` produces the same binary at `./result-zen/bin/zen` from `.flox/pkgs/zen.nix`. Or manually:
 
 ```
 go build -o zen .

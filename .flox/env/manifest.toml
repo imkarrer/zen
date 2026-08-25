@@ -4,6 +4,10 @@ schema-version = "1.14.0"
 
 # Go CLI (zen): toolchain from go.mod, plus git/gh the binary shells out to at runtime.
 # GOPATH and module cache live in $FLOX_ENV_CACHE so they stay per-project.
+#
+# The installable package lives in .flox/pkgs/zen.nix (`flox build`) and is
+# also exposed as flake packages.default so other Flox environments can
+# declare: zen.flake = "github:imkarrer/zen"
 
 [install]
 # go.mod pins `go 1.25.7`; catalog max on go_1_25 is newer, but 1.25.7 is the

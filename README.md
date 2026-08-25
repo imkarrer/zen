@@ -24,11 +24,32 @@ For every PR in your review queue and every feature you're working on, zen creat
 
 ## Quick start
 
+**Install with Flox** (any Flox environment, including a workstation env):
+
+```bash
+flox install github:imkarrer/zen
+```
+
+Or declare it in that environment's `manifest.toml` and let Flox lock the revision:
+
+```toml
+[install]
+zen.flake = "github:imkarrer/zen"
+git.pkg-path = "git"   # zen shells out to git
+gh.pkg-path = "gh"     # zen shells out to gh
+```
+
+**Build from source:**
+
 ```bash
 git clone https://github.com/mgreau/zen.git && cd zen
 flox activate                     # Go 1.25, git, gh, make — or install those yourself
 make build && mv zen ~/bin/       # or anywhere on your PATH
+```
 
+Then:
+
+```bash
 gh auth login
 zen setup                          # interactive: repos, authors, daemon settings
 zen watch start                    # background daemon polls GitHub for PRs
@@ -256,10 +277,31 @@ zen context inject <path> --pr 42 --repo app
 | **[GitHub CLI](https://cli.github.com/) (`gh`)** | Authentication and GitHub API access — must be logged in (`gh auth login`) |
 | **[iTerm2](https://iterm2.com/)**, **[Ghostty](https://ghostty.io/)**, or **[kitty](https://sw.kovidgoyal.net/kitty/)** | Opens review/work sessions in new tabs (iTerm2/Ghostty) or OS windows (kitty). Ghostty needs accessibility permissions for tab creation and falls back to new windows otherwise (see [docs/configuration.md](docs/configuration.md#terminal)) |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or [Codex](https://developers.openai.com/codex/cli) (`codex`)** | AI-assisted PR reviews and coding sessions — pick one with `agent:` in config (see [Configuration](#configuration)) |
-| **Go 1.25+** | Building from source — or `flox activate` for a pinned toolchain (see [Building](#building)) |
-| **[Flox](https://flox.dev)** (optional) | Reproducible local env: `flox activate` then `make build` |
+| **Go 1.25+** | Building from source — skip if you install the binary with Flox (see [Building](#building)) |
+| **[Flox](https://flox.dev)** (optional) | Install `zen` into another env (`flox install github:imkarrer/zen`), or `flox activate` here for a pinned toolchain |
 
 ## Building
+
+### Install the binary with Flox
+
+`zen` is a Nix flake (`packages.default`) and a Flox Nix-expression build (`.flox/pkgs/zen.nix`). Other Flox environments can install it without cloning this repo:
+
+```bash
+flox install github:imkarrer/zen
+# equivalent declarative install:
+#   zen.flake = "github:imkarrer/zen"
+```
+
+`git` and `gh` must also be on `PATH` (install them in the same environment). Flox locks the flake revision in that environment's `manifest.lock`.
+
+To build the package in this repo:
+
+```
+flox build          # → ./result-zen/bin/zen
+# or: nix build     # → ./result/bin/zen
+```
+
+### From source
 
 With [Flox](https://flox.dev) installed, `flox activate` provides Go 1.25.7, Git, GitHub CLI, and GNU Make (module cache stays in the environment, not your home GOPATH):
 
