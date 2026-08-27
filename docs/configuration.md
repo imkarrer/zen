@@ -126,7 +126,8 @@ socket configured via `listen_on`), the window is opened from the running
 kitty instance; otherwise zen starts a separate kitty instance per session.
 
 `terminal: macos` uses the built-in macOS Terminal.app. If Terminal already has
-a window, zen opens a new tab; if none exist, it opens a new window. macOS-only.
+a window, zen opens a new tab via Cmd+T (needs Accessibility, same as Ghostty);
+if none exist, or tab creation fails, it opens a new window. macOS-only.
 
 ## State files
 

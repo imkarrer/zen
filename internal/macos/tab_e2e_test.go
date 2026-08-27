@@ -29,5 +29,5 @@ func TestOpenTabE2E(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("Terminal.app did not create %s within 15s (Automation permission for osascript → Terminal?)", marker)
+	t.Fatalf("Terminal.app did not create %s within 15s (Automation for osascript → Terminal, and Accessibility for Cmd+T tabs?)", marker)
 }
