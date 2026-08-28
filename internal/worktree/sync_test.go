@@ -14,6 +14,12 @@ func git(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test",
+		"GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test",
+		"GIT_COMMITTER_EMAIL=test@example.com",
+	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -117,6 +123,8 @@ func TestFastForward_nonFF(t *testing.T) {
 
 	clone := t.TempDir()
 	git(t, orig, "clone", orig, clone)
+	git(t, clone, "config", "user.email", "test@example.com")
+	git(t, clone, "config", "user.name", "test")
 	git(t, clone, "fetch", "origin", "pr-1:pr-1")
 
 	wtDir := filepath.Join(t.TempDir(), "repo-pr-1")
@@ -179,6 +187,8 @@ func TestUniqueCommitCount_diverged(t *testing.T) {
 
 	clone := t.TempDir()
 	git(t, orig, "clone", orig, clone)
+	git(t, clone, "config", "user.email", "test@example.com")
+	git(t, clone, "config", "user.name", "test")
 	git(t, clone, "fetch", "origin", "pr-1:pr-1")
 
 	wtDir := filepath.Join(t.TempDir(), "repo-pr-1")
