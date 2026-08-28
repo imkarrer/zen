@@ -18,10 +18,7 @@
 
       mkZen =
         pkgs:
-        (pkgs.callPackage ./.flox/pkgs/zen.nix {
-          buildGoModule =
-            pkgs.buildGo125Module or (pkgs.buildGoModule.override { go = pkgs.go_1_25; });
-        }).overrideAttrs
+        (pkgs.callPackage ./.flox/pkgs/zen.nix { }).overrideAttrs
           {
             inherit version;
             src = self;

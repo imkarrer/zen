@@ -1,12 +1,16 @@
 {
   buildGoModule,
+  go_1_25,
   lib,
   makeWrapper,
   git,
   gh,
 }:
 
-buildGoModule {
+# Pin Go 1.25 here so both `flox build` (catalog pkgs) and the flake
+# (callPackage) get it. go.mod requires go 1.25.7; an unpinned
+# buildGoModule can be older and fail in the sandbox (toolchain fetch).
+(buildGoModule.override { go = go_1_25; }) {
   pname = "zen";
   version = "dev";
 

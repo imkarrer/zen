@@ -259,7 +259,7 @@ zen context inject <path> --pr 42 --repo app
 | **[iTerm2](https://iterm2.com/)**, **[Ghostty](https://ghostty.io/)**, or **[kitty](https://sw.kovidgoyal.net/kitty/)** | Opens review/work sessions in new tabs (iTerm2/Ghostty) or OS windows (kitty). Ghostty needs accessibility permissions for tab creation and falls back to new windows otherwise (see [docs/configuration.md](docs/configuration.md#terminal)) |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or [Codex](https://developers.openai.com/codex/cli) (`codex`)** | AI-assisted PR reviews and coding sessions — pick one with `agent:` in config (see [Configuration](#configuration)) |
 | **Go 1.25+** | Building from source — or `flox activate` for a pinned toolchain (see [Building](#building)) |
-| **[Flox](https://flox.dev)** (optional) | Reproducible local env: `flox activate` then `make build` |
+| **[Flox](https://flox.dev)** (optional) | Reproducible local env: `flox activate` then `make build`, or `flox build zen` for a hermetic binary |
 
 ## Building
 
@@ -267,6 +267,8 @@ zen context inject <path> --pr 42 --repo app
 flox activate    # optional: pinned Go 1.25.7, git, gh, make
 make build
 ```
+
+`flox build zen` is the same Nix expression the flake uses, built against the Flox catalog (`./result-zen/bin/zen`). It does not put `zen` on PATH; that is still `mv zen ~/bin` or [Install with Nix](#install-with-nix).
 
 ### Install with Nix
 
