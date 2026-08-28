@@ -97,6 +97,7 @@ func cwdInWorktree(cwd, worktree string) bool {
 func isAgentProcess(comm, cmdline string) bool {
 	comm = strings.ToLower(strings.TrimSpace(comm))
 	comm = strings.TrimSuffix(comm, "\n")
+	comm = filepath.Base(comm)
 	if comm == "" {
 		return false
 	}

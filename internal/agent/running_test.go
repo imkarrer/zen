@@ -13,6 +13,8 @@ func TestIsAgentProcess(t *testing.T) {
 		want          bool
 	}{
 		{"claude", "/opt/homebrew/bin/claude /review-pr", true},
+		{"/opt/homebrew/bin/claude", "/opt/homebrew/bin/claude /review-pr", true},
+		{"/tmp/claude", "/tmp/claude", true},
 		{"codex", "codex resume abc", true},
 		{"aider", "aider --chat-mode ask", true},
 		{"node", "/usr/bin/node /Users/x/.nvm/versions/node/v22/lib/node_modules/@anthropic-ai/claude-code/cli.js", true},
