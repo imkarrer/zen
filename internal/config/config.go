@@ -115,9 +115,18 @@ type RepoConfig struct {
 	BasePath string `yaml:"base_path"`
 }
 
-// zenHome returns the path to ~/.zen.
-func zenHome() string {
+// Dir is the zen config and state directory. ZEN_HOME overrides the default
+// ~/.zen so a test harness (or a second install) does not share last_check.json
+// or config.yaml with a day-to-day daemon.
+func Dir() string {
+	if d := strings.TrimSpace(os.Getenv("ZEN_HOME")); d != "" {
+		return d
+	}
 	return filepath.Join(os.Getenv("HOME"), ".zen")
+}
+
+func zenHome() string {
+	return Dir()
 }
 
 // Load reads the YAML config from ~/.zen/config.yaml.

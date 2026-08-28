@@ -133,9 +133,13 @@ kitty instance; otherwise zen starts a separate kitty instance per session.
 a window, zen opens a new tab via Cmd+T (needs Accessibility, same as Ghostty);
 if none exist, or tab creation fails, it opens a new window. macOS-only.
 
+## Environment
+
+`ZEN_HOME` overrides the config/state directory (default `~/.zen`). Functional tests and a second daemon use this so they do not share `config.yaml` or `last_check.json` with a day-to-day install.
+
 ## State files
 
-All state lives in `~/.zen/state/`:
+All state lives in `~/.zen/state/` (or `$ZEN_HOME/state/`):
 
 | File | Purpose |
 |------|---------|

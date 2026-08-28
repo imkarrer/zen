@@ -228,6 +228,7 @@ func TestLoadTerminal(t *testing.T) {
 func TestLoadMissingConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("ZEN_HOME", "")
 
 	_, err := Load()
 	if err == nil {
@@ -235,9 +236,40 @@ func TestLoadMissingConfig(t *testing.T) {
 	}
 }
 
+func TestDir_ZEN_HOME(t *testing.T) {
+	home := t.TempDir()
+	zenHome := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ZEN_HOME", zenHome)
+
+	if got := Dir(); got != zenHome {
+		t.Fatalf("Dir() = %q, want ZEN_HOME %q", got, zenHome)
+	}
+
+	yamlContent := `repos:
+  mono:
+    full_name: chainguard-dev/mono
+    base_path: /tmp/mono
+`
+	if err := os.WriteFile(filepath.Join(zenHome, "config.yaml"), []byte(yamlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RepoFullName("mono") != "chainguard-dev/mono" {
+		t.Fatal("Load() should read $ZEN_HOME/config.yaml")
+	}
+	if _, err := os.Stat(filepath.Join(home, ".zen")); !os.IsNotExist(err) {
+		t.Fatal("ZEN_HOME must not create ~/.zen")
+	}
+}
+
 func TestEnsureDirs(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
+	t.Setenv("ZEN_HOME", "")
 
 	err := EnsureDirs()
 	if err != nil {

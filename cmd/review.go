@@ -93,8 +93,16 @@ func runReview(cmd *cobra.Command, args []string) error {
 			if aerr != nil {
 				return aerr
 			}
-			if _, err := review.CreateWorktree(ctx, cfg, ag, reviewRepo, prNumber, ui.LogInfo, confirmResetWorktree); err != nil {
-				ui.LogWarn(fmt.Sprintf("refresh before resume: %v", err))
+			result, rerr := review.CreateWorktree(ctx, cfg, ag, reviewRepo, prNumber, ui.LogInfo, confirmResetWorktree)
+			if rerr != nil {
+				ui.LogWarn(fmt.Sprintf("refresh before resume: %v", rerr))
+			}
+			if jsonFlag && result != nil {
+				printJSON(result)
+				return nil
+			}
+			if reviewNoITerm {
+				return nil
 			}
 			ui.LogInfo(fmt.Sprintf("Worktree already exists, resuming PR #%d...", prNumber))
 			if reviewModel != "" {
