@@ -2,6 +2,8 @@ package github
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -160,5 +162,68 @@ func TestBuildApprovedUnmergedQuery(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsNotFound(t *testing.T) {
+	if IsNotFound(nil) {
+		t.Fatal("nil")
+	}
+	if !IsNotFound(fmt.Errorf("fetching PR #1: GET https://api.github.com/repos/o/r/pulls/1: 404 Not Found []")) {
+		t.Fatal("expected 404 to match")
+	}
+	if !IsNotFound(fmt.Errorf("GET https://api.github.com/repos/o/r/pulls/1: 404 Not Found []")) {
+		t.Fatal("bare 404")
+	}
+	if IsNotFound(fmt.Errorf("git fetch timed out: context deadline exceeded")) {
+		t.Fatal("timeout is not a 404")
+	}
+}
+
+func TestReviewRequest_graphQLOmitsOptionalFields(t *testing.T) {
+	var pr ReviewRequest
+	if err := json.Unmarshal([]byte(`{"number":12,"title":"n","author":{"login":"a"},"repository":{"name":"r","nameWithOwner":"o/r"}}`), &pr); err != nil {
+		t.Fatal(err)
+	}
+	if pr.HeadRefOid != "" || pr.IsDraft || pr.Closed {
+		t.Fatalf("omitted fields must be zero: %+v", pr)
+	}
+}
+
+func TestReviewRequest_graphQLNullHeadAndGhostAuthor(t *testing.T) {
+	raw := `{
+		"number": 3,
+		"title": "from a deleted user",
+		"author": null,
+		"repository": {"name": "r", "nameWithOwner": "o/r"},
+		"headRefOid": null,
+		"isDraft": true,
+		"closed": false
+	}`
+	var pr ReviewRequest
+	if err := json.Unmarshal([]byte(raw), &pr); err != nil {
+		t.Fatal(err)
+	}
+	if pr.HeadRefOid != "" {
+		t.Fatalf("null headRefOid = %q", pr.HeadRefOid)
+	}
+	if pr.Author.Login != "" {
+		t.Fatalf("null author login = %q", pr.Author.Login)
+	}
+	if !pr.IsDraft {
+		t.Fatal("isDraft")
+	}
+}
+
+func TestMergeReviewRequests_dedupByRepoAndNumber(t *testing.T) {
+	a := ReviewRequest{Number: 1, Title: "one", Repository: RepoInfo{NameWithOwner: "org/foo"}}
+	b := ReviewRequest{Number: 1, Title: "dup", Repository: RepoInfo{NameWithOwner: "org/foo"}}
+	c := ReviewRequest{Number: 1, Title: "other-repo", Repository: RepoInfo{NameWithOwner: "org/bar"}}
+	got := mergeReviewRequests([]ReviewRequest{a}, []ReviewRequest{b, c})
+	if len(got) != 2 {
+		t.Fatalf("len=%d want 2", len(got))
+	}
+	if got[0].Repository.NameWithOwner != "org/foo" || got[1].Repository.NameWithOwner != "org/bar" {
+		t.Fatalf("unexpected merge: %+v", got)
 	}
 }

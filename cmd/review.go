@@ -83,12 +83,19 @@ func runReview(cmd *cobra.Command, args []string) error {
 		reviewRepo = detected
 	}
 
-	// Check if worktree already exists and resume
+	// Check if worktree already exists: refresh then resume the session.
 	basePath := cfg.RepoBasePath(reviewRepo)
 	if basePath != "" {
 		worktreeName := fmt.Sprintf("%s-pr-%d", reviewRepo, prNumber)
 		worktreePath := filepath.Join(basePath, worktreeName)
 		if _, err := os.Stat(worktreePath); err == nil {
+			ag, aerr := resolveAgent()
+			if aerr != nil {
+				return aerr
+			}
+			if _, err := review.CreateWorktree(ctx, cfg, ag, reviewRepo, prNumber, ui.LogInfo, confirmResetWorktree); err != nil {
+				ui.LogWarn(fmt.Sprintf("refresh before resume: %v", err))
+			}
 			ui.LogInfo(fmt.Sprintf("Worktree already exists, resuming PR #%d...", prNumber))
 			if reviewModel != "" {
 				resumeModel = reviewModel
@@ -103,7 +110,7 @@ func runReview(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create worktree using shared logic
-	result, err := review.CreateWorktree(ctx, cfg, ag, reviewRepo, prNumber, ui.LogInfo)
+	result, err := review.CreateWorktree(ctx, cfg, ag, reviewRepo, prNumber, ui.LogInfo, confirmResetWorktree)
 	if err != nil {
 		return err
 	}
@@ -204,6 +211,24 @@ func openReviewTab(worktreePath, worktreeName string) error {
 		return err
 	}
 	return resumeWorktree(w, fmt.Sprintf("zen review resume %s", worktreeName), term)
+}
+
+// confirmResetWorktree asks before git reset --hard onto a rewritten GitHub
+// head. --json never resets (no TTY). Default is no.
+func confirmResetWorktree(req review.ResetRequest) bool {
+	if jsonFlag {
+		return false
+	}
+	fmt.Printf("PR #%d was rewritten on GitHub (force-push).\n", req.PRNumber)
+	fmt.Println("  Reset this worktree onto the new head? Untracked files (CLAUDE.local.md, .zen/) are kept.")
+	if req.UniqueCommits > 0 {
+		fmt.Printf("  %d local commit(s) on pr-%d will leave the branch (reflog keeps them).\n", req.UniqueCommits, req.PRNumber)
+	}
+	fmt.Print("  Reset? [y/N]: ")
+	var resp string
+	fmt.Scanln(&resp)
+	resp = strings.TrimSpace(resp)
+	return resp == "y" || resp == "Y" || resp == "yes"
 }
 
 // detectRepoForPR tries each configured repo to find which one contains the

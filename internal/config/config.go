@@ -250,6 +250,19 @@ func (c *Config) RepoShortName(full string) string {
 	return parts[len(parts)-1]
 }
 
+// ConfiguredRepo returns the config short name for a GitHub owner/repo.
+// Unlike RepoShortName, it does not fall back to the last path component, so
+// an unconfigured repo is not mistaken for a configured one that happens to
+// share a name.
+func (c *Config) ConfiguredRepo(full string) (string, bool) {
+	for name, repo := range c.Repos {
+		if repo.FullName == full {
+			return name, true
+		}
+	}
+	return "", false
+}
+
 // RepoBasePath returns the local base path for a repo (the parent dir
 // that contains the main clone directory).
 func (c *Config) RepoBasePath(short string) string {

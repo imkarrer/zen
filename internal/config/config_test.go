@@ -60,6 +60,13 @@ func TestRepoShortName(t *testing.T) {
 			}
 		})
 	}
+
+	if _, ok := cfg.ConfiguredRepo("unknown/repo"); ok {
+		t.Error("ConfiguredRepo should not match unconfigured repos")
+	}
+	if got, ok := cfg.ConfiguredRepo("chainguard-dev/mono"); !ok || got != "mono" {
+		t.Errorf("ConfiguredRepo(chainguard-dev/mono) = %q, %v", got, ok)
+	}
 }
 
 func TestIsAuthor(t *testing.T) {

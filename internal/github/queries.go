@@ -33,6 +33,9 @@ type ReviewRequest struct {
 	Repository RepoInfo   `json:"repository"`
 	CreatedAt  string     `json:"createdAt"`
 	URL        string     `json:"url"`
+	HeadRefOid string     `json:"headRefOid"`
+	IsDraft    bool       `json:"isDraft"`
+	Closed     bool       `json:"closed"`
 }
 
 // AuthorInfo holds author login info.
@@ -118,6 +121,9 @@ func GetReviewRequests(ctx context.Context, repoFilter string, ignoreDrafts bool
         repository { name nameWithOwner }
         createdAt
         url
+        headRefOid
+        isDraft
+        closed
       }
     }
   }
@@ -130,6 +136,9 @@ func GetReviewRequests(ctx context.Context, repoFilter string, ignoreDrafts bool
         repository { name nameWithOwner }
         createdAt
         url
+        headRefOid
+        isDraft
+        closed
       }
     }
   }
@@ -164,21 +173,29 @@ func GetReviewRequests(ctx context.Context, repoFilter string, ignoreDrafts bool
 		return nil, fmt.Errorf("parsing GraphQL response: %w", err)
 	}
 
-	// Merge and deduplicate
-	seen := make(map[int]bool)
+	return mergeReviewRequests(result.Data.Requested.Nodes, result.Data.Rereview.Nodes), nil
+}
+
+// mergeReviewRequests concatenates GraphQL search result lists, dropping empty
+// nodes and deduplicating by owner/repo + number (PR numbers are not unique
+// across repositories).
+func mergeReviewRequests(lists ...[]ReviewRequest) []ReviewRequest {
+	seen := make(map[string]bool)
 	var merged []ReviewRequest
-	for _, lists := range [][]ReviewRequest{result.Data.Requested.Nodes, result.Data.Rereview.Nodes} {
-		for _, rr := range lists {
+	for _, list := range lists {
+		for _, rr := range list {
 			if rr.Number == 0 {
 				continue
 			}
-			if !seen[rr.Number] {
-				seen[rr.Number] = true
-				merged = append(merged, rr)
+			key := fmt.Sprintf("%s#%d", rr.Repository.NameWithOwner, rr.Number)
+			if seen[key] {
+				continue
 			}
+			seen[key] = true
+			merged = append(merged, rr)
 		}
 	}
-	return merged, nil
+	return merged
 }
 
 // GetApprovedUnmerged fetches the user's own PRs that are approved but not yet merged.
@@ -261,9 +278,9 @@ func ListOpenPRs(ctx context.Context, fullRepo string, limit int, ignoreDrafts b
 	}
 
 	var prs []struct {
-		Number    int    `json:"number"`
-		Title     string `json:"title"`
-		Author    struct {
+		Number int    `json:"number"`
+		Title  string `json:"title"`
+		Author struct {
 			Login string `json:"login"`
 		} `json:"author"`
 		CreatedAt string `json:"createdAt"`
@@ -281,9 +298,9 @@ func ListOpenPRs(ctx context.Context, fullRepo string, limit int, ignoreDrafts b
 			repoName = parts[1]
 		}
 		result = append(result, ReviewRequest{
-			Number:    pr.Number,
-			Title:     pr.Title,
-			Author:    AuthorInfo{Login: pr.Author.Login},
+			Number: pr.Number,
+			Title:  pr.Title,
+			Author: AuthorInfo{Login: pr.Author.Login},
 			Repository: RepoInfo{
 				Name:          repoName,
 				NameWithOwner: fullRepo,
