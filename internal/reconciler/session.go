@@ -50,7 +50,7 @@ func ScanSessions(cfg *config.Config, idleThreshold time.Duration) {
 		s := sessions[0]
 		filePath := s.Path
 
-		running := ag.IsProcessRunning(s.ID)
+		running := ag.IsProcessRunning(s.ID, wt.Path)
 
 		var status string
 		switch {
@@ -78,6 +78,9 @@ func ScanSessions(cfg *config.Config, idleThreshold time.Duration) {
 					if err := notify.SessionWaiting(wt.Name, shortenedModel, resumeCmd); err != nil {
 						fmt.Printf("[%s] Session notify error for %s: %v\n",
 							time.Now().Format(time.RFC3339), wt.Name, err)
+					}
+					if SlackReadyHook != nil {
+						SlackReadyHook(wt.Path, wt.Name, resumeCmd)
 					}
 					lastNotifiedAt.Store(s.ID, now)
 				}
