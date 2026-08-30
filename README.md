@@ -26,6 +26,7 @@ For every PR in your review queue and every feature you're working on, zen creat
 
 ```bash
 git clone https://github.com/mgreau/zen.git && cd zen
+flox activate                     # Go 1.25, git, gh, make — or install those yourself
 make build && mv zen ~/bin/       # or anywhere on your PATH
 
 gh auth login
@@ -33,6 +34,8 @@ zen setup                          # interactive: repos, authors, daemon setting
 zen watch start                    # background daemon polls GitHub for PRs
 zen inbox                          # see what needs your attention
 ```
+
+- Alternatively, skip `mv zen ~/bin` and [install with Nix](#install-with-nix).
 
 When a PR shows up in your inbox, `zen review <number>` opens that PR in a new terminal tab with Claude pre-armed and the PR context loaded. See [Prerequisites](#prerequisites) for what to install first.
 
@@ -259,12 +262,41 @@ zen context inject <path> --pr 42 --repo app
 | **[GitHub CLI](https://cli.github.com/) (`gh`)** | Authentication and GitHub API access — must be logged in (`gh auth login`) |
 | **[iTerm2](https://iterm2.com/)**, **[Ghostty](https://ghostty.io/)**, **[kitty](https://sw.kovidgoyal.net/kitty/)**, or **Terminal.app** | Opens review/work sessions in new tabs (iTerm2/Ghostty/Terminal.app) or OS windows (kitty). Set `terminal: macos` for the built-in macOS Terminal. Ghostty and Terminal.app need accessibility permissions for tab creation and fall back to new windows otherwise (see [docs/configuration.md](docs/configuration.md#terminal)) |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or [Codex](https://developers.openai.com/codex/cli) (`codex`)** | AI-assisted PR reviews and coding sessions — pick one with `agent:` in config (see [Configuration](#configuration)) |
-| **Go 1.24+** | Building from source |
+| **Go 1.25+** | Building from source — or `flox activate` for a pinned toolchain (see [Building](#building)) |
+| **[Flox](https://flox.dev)** (optional) | Reproducible local env: `flox activate` then `make build`, or `flox build zen` for a hermetic binary |
 
 ## Building
 
 ```
+flox activate    # optional: pinned Go 1.25.7, git, gh, make
 make build
+```
+
+`flox build zen` is the same Nix expression the flake uses, built against the Flox catalog (`./result-zen/bin/zen`). It does not put `zen` on PATH; that is still `mv zen ~/bin` or [Install with Nix](#install-with-nix).
+
+### Install with Nix
+
+For people who already use [Nix](https://nixos.org): a flake in this repo builds `zen` for Linux and macOS (`packages.default`, with `git`/`gh` wrapped in). This is an alternative to `mv zen ~/bin`, not a required dependency. `zen setup` still writes `~/.zen/config.yaml`.
+
+**NixOS or nix-darwin** (`environment.systemPackages`):
+
+```nix
+# flake.nix
+inputs.zen.url = "github:mgreau/zen";
+
+# configuration.nix / darwin/packages.nix
+environment.systemPackages = [
+  inputs.zen.packages.${pkgs.system}.default
+];
+```
+
+**home-manager:** `home.packages = [ inputs.zen.packages.${pkgs.system}.default ];`
+
+**Any Nix install:**
+
+```bash
+nix profile install github:mgreau/zen
+# or one-off: nix run github:mgreau/zen -- version
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for testing and architecture pointers.
