@@ -26,6 +26,7 @@ For every PR in your review queue and every feature you're working on, zen creat
 
 ```bash
 git clone https://github.com/mgreau/zen.git && cd zen
+flox activate                     # Go 1.25, git, gh, make — or install those yourself
 make build && mv zen ~/bin/       # or anywhere on your PATH
 
 gh auth login
@@ -33,6 +34,8 @@ zen setup                          # interactive: repos, authors, daemon setting
 zen watch start                    # background daemon polls GitHub for PRs
 zen inbox                          # see what needs your attention
 ```
+
+- Alternatively, skip `mv zen ~/bin` and [install with Nix](#install-with-nix).
 
 When a PR shows up in your inbox, `zen review <number>` opens that PR in a new terminal tab with Claude pre-armed and the PR context loaded. See [Prerequisites](#prerequisites) for what to install first.
 
@@ -129,6 +132,19 @@ zen status                       # alias: zen dashboard
 
 Worktree counts, PR reviews (with remote state and cleanup ETA), feature work, and daemon state.
 
+### `zen board` — live PR board
+
+```bash
+zen board                        # interactive, auto-refreshes every 30s
+```
+
+Two live tables:
+
+- **My Pull Requests** — grouped by status (ready to merge, failing CI, changes requested, in review, in flight, draft). PRs stacked on one of your other open PRs (same repo, base branch = another PR's head branch) are shown together with a `|----` marker instead of being scattered by status.
+- **Needs Your Review** — across all configured repos, unlike `zen inbox` not filtered by the `authors` config, so nothing slips through. Sorted into three tiers: PRs from someone in your `authors` config, then PRs touching a `watch_paths` entry, then everyone else — newest first within each tier.
+
+Keys: `tab` switches tables, `enter`/`o` opens the selected PR in your browser, `v` starts/resumes a review for the selected row (same as `zen review <number>`), `s` shows/hides the first 20 lines of the selected PR's description (fetched on demand), `r` refreshes now, `q` quits.
+
 ### `zen reviews` — your recent reviews
 
 ```bash
@@ -174,6 +190,10 @@ zen watch status                 # show daemon status + last check
 zen watch logs                   # tail daemon log output
 zen watch logs search 42         # search logs for a PR, worktree, or keyword
 ```
+
+### Slack task watcher (opt-in)
+
+React to a Slack message with `:claudecode:` (or whatever emoji you configure) and the daemon picks it up: acks in-thread, creates a feature worktree seeded with the discussion as the initial prompt, and opens it in a terminal tab right away — unlike the PR-review flow, which only prepares worktrees silently. When that session goes idle, you get a Slack DM back with a resume command and a link to the thread. Off by default; see [docs/configuration.md](docs/configuration.md#slack-task-watcher) for setup (a Slack token with a handful of scopes, via `ZEN_SLACK_TOKEN`).
 
 Manual cleanup, in case you want it (the daemon handles merged PRs automatically, 5+ days after merge):
 
@@ -255,12 +275,41 @@ zen context inject <path> --pr 42 --repo app
 | **[GitHub CLI](https://cli.github.com/) (`gh`)** | Authentication and GitHub API access — must be logged in (`gh auth login`) |
 | **[iTerm2](https://iterm2.com/)**, **[Ghostty](https://ghostty.io/)**, **[kitty](https://sw.kovidgoyal.net/kitty/)**, or **Terminal.app** | Opens review/work sessions in new tabs (iTerm2/Ghostty/Terminal.app) or OS windows (kitty). Set `terminal: macos` for the built-in macOS Terminal. Ghostty and Terminal.app need accessibility permissions for tab creation and fall back to new windows otherwise (see [docs/configuration.md](docs/configuration.md#terminal)) |
 | **[Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`claude`) or [Codex](https://developers.openai.com/codex/cli) (`codex`)** | AI-assisted PR reviews and coding sessions — pick one with `agent:` in config (see [Configuration](#configuration)) |
-| **Go 1.24+** | Building from source |
+| **Go 1.25+** | Building from source — or `flox activate` for a pinned toolchain (see [Building](#building)) |
+| **[Flox](https://flox.dev)** (optional) | Reproducible local env: `flox activate` then `make build`, or `flox build zen` for a hermetic binary |
 
 ## Building
 
 ```
+flox activate    # optional: pinned Go 1.25.7, git, gh, make
 make build
+```
+
+`flox build zen` is the same Nix expression the flake uses, built against the Flox catalog (`./result-zen/bin/zen`). It does not put `zen` on PATH; that is still `mv zen ~/bin` or [Install with Nix](#install-with-nix).
+
+### Install with Nix
+
+For people who already use [Nix](https://nixos.org): a flake in this repo builds `zen` for Linux and macOS (`packages.default`, with `git`/`gh` wrapped in). This is an alternative to `mv zen ~/bin`, not a required dependency. `zen setup` still writes `~/.zen/config.yaml`.
+
+**NixOS or nix-darwin** (`environment.systemPackages`):
+
+```nix
+# flake.nix
+inputs.zen.url = "github:mgreau/zen";
+
+# configuration.nix / darwin/packages.nix
+environment.systemPackages = [
+  inputs.zen.packages.${pkgs.system}.default
+];
+```
+
+**home-manager:** `home.packages = [ inputs.zen.packages.${pkgs.system}.default ];`
+
+**Any Nix install:**
+
+```bash
+nix profile install github:mgreau/zen
+# or one-off: nix run github:mgreau/zen -- version
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for testing and architecture pointers.

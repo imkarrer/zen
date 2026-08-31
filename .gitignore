@@ -19,3 +19,7 @@ go.work.sum
 
 # env file
 .env
+
+# Nix / Flox build outputs
+result
+result-*

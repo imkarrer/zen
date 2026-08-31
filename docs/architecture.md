@@ -111,6 +111,7 @@ zen
 ├── commands/                     # Slash-command prompts (embedded in binary)
 ├── internal/
 │   ├── agent/                    # Agent abstraction (Claude Code / Codex)
+│   ├── board/                    # `zen board` bubbletea TUI: live PR status view
 │   ├── config/                   # YAML config (~/.zen/config.yaml)
 │   ├── context/                  # PR-review context rendering
 │   ├── ghostty/                  # Ghostty tab/window management via AppleScript
@@ -121,9 +122,10 @@ zen
 │   ├── mcp/                      # MCP server exposing zen tools
 │   ├── notify/                   # Desktop notifications (osascript on macOS, notify-send on Linux)
 │   ├── prcache/                  # Lightweight PR metadata cache (JSON)
-│   ├── reconciler/               # Workqueue-based PR setup + cleanup + session scan
+│   ├── reconciler/               # Workqueue-based PR setup + cleanup + session scan + Slack task watcher
 │   ├── review/                   # Shared worktree creation logic (CLI + MCP)
 │   ├── session/                  # Shared session types + Claude session detection
+│   ├── slack/                    # Minimal Slack Web API client for the task watcher
 │   ├── terminal/                 # Terminal backend abstraction (iterm/ghostty/kitty/macos)
 │   ├── ui/                       # Terminal formatting
 │   └── worktree/                 # Git worktree discovery + management

@@ -36,7 +36,7 @@ func runningBySession(worktreePath string) bool {
 			continue
 		}
 		for _, s := range sessions {
-			if ag.IsProcessRunning(s.ID) {
+			if ag.IsProcessRunning(s.ID, worktreePath) {
 				return true
 			}
 		}

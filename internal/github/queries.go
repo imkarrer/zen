@@ -36,7 +36,16 @@ type ReviewRequest struct {
 	HeadRefOid string     `json:"headRefOid"`
 	IsDraft    bool       `json:"isDraft"`
 	Closed     bool       `json:"closed"`
+	// Kind is "new" or "rereview", set by GetReviewRequests to record which
+	// of its two queries matched. Not part of the GitHub API response.
+	Kind string `json:"-"`
 }
+
+// Review request kinds, set on ReviewRequest.Kind by GetReviewRequests.
+const (
+	ReviewKindNew      = "new"
+	ReviewKindRereview = "rereview"
+)
 
 // AuthorInfo holds author login info.
 type AuthorInfo struct {
@@ -60,6 +69,49 @@ type ApprovedPR struct {
 	ReviewDecision string     `json:"reviewDecision"`
 }
 
+// MyPR represents one of the current user's open pull requests, enriched
+// with review and CI status for `zen board`'s status classification.
+type MyPR struct {
+	Number         int      `json:"number"`
+	Title          string   `json:"title"`
+	Repository     RepoInfo `json:"repository"`
+	CreatedAt      string   `json:"createdAt"`
+	URL            string   `json:"url"`
+	IsDraft        bool     `json:"isDraft"`
+	ReviewDecision string   `json:"reviewDecision"`
+	Mergeable      string   `json:"mergeable"`
+	// BaseRefName and HeadRefName let callers detect stacked PRs: PR A
+	// depends on PR B when A's BaseRefName equals B's HeadRefName.
+	BaseRefName    string `json:"baseRefName"`
+	HeadRefName    string `json:"headRefName"`
+	ReviewRequests struct {
+		TotalCount int `json:"totalCount"`
+	} `json:"reviewRequests"`
+	Commits struct {
+		Nodes []struct {
+			Commit struct {
+				StatusCheckRollup struct {
+					State string `json:"state"`
+				} `json:"statusCheckRollup"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"commits"`
+}
+
+// CheckState returns the latest commit's CI status-check rollup state
+// (e.g. "SUCCESS", "FAILURE", "PENDING"), or "" if no checks are reported.
+func (p MyPR) CheckState() string {
+	if len(p.Commits.Nodes) == 0 {
+		return ""
+	}
+	return p.Commits.Nodes[0].Commit.StatusCheckRollup.State
+}
+
+// HasReviewRequests reports whether any reviewers are currently requested.
+func (p MyPR) HasReviewRequests() bool {
+	return p.ReviewRequests.TotalCount > 0
+}
+
 // GetCurrentUser returns the authenticated GitHub user's login.
 func GetCurrentUser(ctx context.Context) (string, error) {
 	ctx, cancel := withTimeout(ctx)
@@ -73,6 +125,32 @@ func GetCurrentUser(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("fetching current user: %s", ghError(err))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// mergeReviewRequests merges and deduplicates the results of the two
+// GetReviewRequests queries, tagging each with which one matched. Dedup is
+// by owner/repo + number because PR numbers are not unique across
+// repositories. A PR appearing in both queries keeps the "new" tag, since
+// requested is merged first.
+func mergeReviewRequests(requested, rereview []ReviewRequest) []ReviewRequest {
+	seen := make(map[string]bool)
+	var merged []ReviewRequest
+	kinds := []string{ReviewKindNew, ReviewKindRereview}
+	for i, lists := range [][]ReviewRequest{requested, rereview} {
+		for _, rr := range lists {
+			if rr.Number == 0 {
+				continue
+			}
+			key := fmt.Sprintf("%s#%d", rr.Repository.NameWithOwner, rr.Number)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			rr.Kind = kinds[i]
+			merged = append(merged, rr)
+		}
+	}
+	return merged
 }
 
 // buildReviewRequestQueries returns the two GitHub search query strings used
@@ -176,28 +254,6 @@ func GetReviewRequests(ctx context.Context, repoFilter string, ignoreDrafts bool
 	return mergeReviewRequests(result.Data.Requested.Nodes, result.Data.Rereview.Nodes), nil
 }
 
-// mergeReviewRequests concatenates GraphQL search result lists, dropping empty
-// nodes and deduplicating by owner/repo + number (PR numbers are not unique
-// across repositories).
-func mergeReviewRequests(lists ...[]ReviewRequest) []ReviewRequest {
-	seen := make(map[string]bool)
-	var merged []ReviewRequest
-	for _, list := range lists {
-		for _, rr := range list {
-			if rr.Number == 0 {
-				continue
-			}
-			key := fmt.Sprintf("%s#%d", rr.Repository.NameWithOwner, rr.Number)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			merged = append(merged, rr)
-		}
-	}
-	return merged
-}
-
 // GetApprovedUnmerged fetches the user's own PRs that are approved but not yet merged.
 // When ignoreDrafts is true, draft PRs are excluded at the GitHub search layer.
 func GetApprovedUnmerged(ctx context.Context, repoFilter string, ignoreDrafts bool) ([]ApprovedPR, error) {
@@ -245,6 +301,85 @@ func GetApprovedUnmerged(ctx context.Context, repoFilter string, ignoreDrafts bo
 	}
 
 	var filtered []ApprovedPR
+	for _, pr := range result.Data.Search.Nodes {
+		if pr.Number != 0 {
+			filtered = append(filtered, pr)
+		}
+	}
+	return filtered, nil
+}
+
+// buildMyOpenPRsQuery returns the GitHub search query string for
+// GetMyOpenPRs. Unlike other queries, drafts are always included — a PR's
+// own author wants to see their WIP work, not just review-ready PRs.
+func buildMyOpenPRsQuery(repoFilter string) string {
+	repoClause := ""
+	if repoFilter != "" {
+		repoClause = " repo:" + repoFilter
+	}
+	return fmt.Sprintf("is:pr is:open author:@me%s", repoClause)
+}
+
+// GetMyOpenPRs fetches the user's own open PRs, enriched with draft state,
+// review decision, mergeability, pending review requests, and the latest
+// commit's CI check rollup — enough to classify each into a status bucket
+// (ready to merge, failing CI, changes requested, in review, in flight, draft).
+func GetMyOpenPRs(ctx context.Context, repoFilter string) ([]MyPR, error) {
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	query := `query($q: String!) {
+  search(query: $q, type: ISSUE, first: 50) {
+    nodes {
+      ... on PullRequest {
+        number
+        title
+        repository { name nameWithOwner }
+        createdAt
+        url
+        isDraft
+        reviewDecision
+        mergeable
+        baseRefName
+        headRefName
+        reviewRequests { totalCount }
+        commits(last: 1) {
+          nodes {
+            commit {
+              statusCheckRollup { state }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+	q := buildMyOpenPRsQuery(repoFilter)
+
+	cmd := exec.CommandContext(ctx, "gh", "api", "graphql",
+		"-f", "query="+query,
+		"-f", "q="+q,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return nil, fmt.Errorf("my open PRs query timed out after %s", apiTimeout)
+		}
+		return nil, fmt.Errorf("GraphQL query failed: %s", ghError(err))
+	}
+
+	var result struct {
+		Data struct {
+			Search struct {
+				Nodes []MyPR `json:"nodes"`
+			} `json:"search"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		return nil, fmt.Errorf("parsing GraphQL response: %w", err)
+	}
+
+	var filtered []MyPR
 	for _, pr := range result.Data.Search.Nodes {
 		if pr.Number != 0 {
 			filtered = append(filtered, pr)
