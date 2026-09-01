@@ -81,7 +81,7 @@ func (r *SetupReconciler) Reconcile(ctx context.Context, key string, _ workqueue
 	label := fmt.Sprintf("%s PR #%d %q", repo, prNumber, pr.Title)
 
 	worktreeName := fmt.Sprintf("%s-pr-%d", repo, prNumber)
-	worktreePath := filepath.Join(basePath, worktreeName)
+	worktreePath := wt.Resolve(r.cfg, repo, worktreeName)
 	originPath := filepath.Join(basePath, repo)
 	fullRepo := r.cfg.RepoFullName(repo)
 

@@ -55,7 +55,7 @@ func CreateWorktree(ctx context.Context, cfg *config.Config, ag agent.Agent, rep
 
 	originPath := filepath.Join(basePath, repoShort)
 	worktreeName := fmt.Sprintf("%s-pr-%d", repoShort, prNumber)
-	worktreePath := filepath.Join(basePath, worktreeName)
+	worktreePath := wt.Resolve(cfg, repoShort, worktreeName)
 
 	// If worktree already exists, return it
 	if _, err := os.Stat(worktreePath); err == nil {
@@ -135,6 +135,8 @@ func CreateWorktree(ctx context.Context, cfg *config.Config, ag agent.Agent, rep
 		return nil, fmt.Errorf("git checkout in worktree: %w: %s", err, string(out))
 	}
 	cancel()
+
+	wt.EnsureNestedExcluded(originPath, worktreePath)
 
 	// Clean stale index.lock (only if holding process is dead)
 	lockFile := filepath.Join(originPath, ".git", "worktrees", worktreeName, "index.lock")
