@@ -144,11 +144,12 @@ func runInboxForRepo(repo string, authors []string, currentUser string, ignoreDr
 			return false, fmt.Errorf("fetching review requests for %s: %w", repo, reviewsErr)
 		}
 
-		filtered := filterByAuthors(reviews, authors)
-
-		if len(filtered) > 0 {
+		// reviews are already scoped server-side to PRs where currentUser is a
+		// requested reviewer (see GetReviewRequests) — an explicit request
+		// always surfaces regardless of the authors allowlist, per README.
+		if len(reviews) > 0 {
 			hasResults = true
-			displayReviewResults(filtered, localPRs, repo)
+			displayReviewResults(reviews, localPRs, repo)
 		}
 
 		if approvedErr == nil && len(approved) > 0 {
@@ -401,12 +402,9 @@ func displayReviewResults(prs []ghpkg.ReviewRequest, localPRs map[int]bool, repo
 	}
 
 	fmt.Println()
-	if inboxAll {
-		fmt.Printf("%s %s\n", ui.BoldText(fmt.Sprintf("%d Pending PR Reviews — %s", len(prs), ui.YellowText(repo))), ui.DimText("(all authors)"))
-	} else {
-		fmt.Println(ui.BoldText(fmt.Sprintf("%d Pending PR Reviews — %s", len(prs), ui.YellowText(repo))))
-		ui.Hint(fmt.Sprintf("Authors: %s", strings.Join(cfg.Authors, " ")))
-	}
+	// Explicit review requests always show, regardless of the authors
+	// allowlist — see the comment at the call site in runInboxForRepo.
+	fmt.Printf("%s %s\n", ui.BoldText(fmt.Sprintf("%d Pending PR Reviews — %s", len(prs), ui.YellowText(repo))), ui.DimText("(explicit review requests)"))
 	fmt.Println("═══════════════════════════════════════════════════════════════")
 	fmt.Println()
 
