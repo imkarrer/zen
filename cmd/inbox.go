@@ -144,12 +144,10 @@ func runInboxForRepo(repo string, authors []string, currentUser string, ignoreDr
 			return false, fmt.Errorf("fetching review requests for %s: %w", repo, reviewsErr)
 		}
 
-		// reviews are already scoped server-side to PRs where currentUser is a
-		// requested reviewer (see GetReviewRequests) — an explicit request
-		// always surfaces regardless of the authors allowlist, per README.
-		if len(reviews) > 0 {
+		toShow := reviewsForInbox(reviews)
+		if len(toShow) > 0 {
 			hasResults = true
-			displayReviewResults(reviews, localPRs, repo)
+			displayReviewResults(toShow, localPRs, repo)
 		}
 
 		if approvedErr == nil && len(approved) > 0 {
@@ -195,6 +193,16 @@ func getLocalPRNumbers(repo string) map[int]bool {
 		}
 	}
 	return m
+}
+
+// reviewsForInbox selects which review-request PRs the inbox displays.
+// GetReviewRequests already scopes reviews to PRs where the current user is
+// a requested reviewer, which is a stronger signal than PR authorship — so,
+// unlike the other inbox sections, this list is never run through
+// filterByAuthors. Explicit review requests always surface, regardless of
+// the authors allowlist (see README's "explicit review requests" note).
+func reviewsForInbox(reviews []ghpkg.ReviewRequest) []ghpkg.ReviewRequest {
+	return reviews
 }
 
 func filterByAuthors(prs []ghpkg.ReviewRequest, authors []string) []ghpkg.ReviewRequest {
