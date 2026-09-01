@@ -27,16 +27,19 @@ jobs:
       - name: Lint
         run: go vet ./...
 
-  nix-build:
-    # Builds the flake package (.flox/pkgs/zen.nix via flake.nix) from
-    # scratch on every PR. The `go build`/`go test` job above does not
-    # exercise vendorHash or the Nix sandbox's checkPhase PATH, so a stale
-    # hash or a check-only PATH dependency can merge silently otherwise.
+  flox-build:
+    # Builds .flox/pkgs/zen.nix from scratch on every PR via the same
+    # `flox build zen` the README's quickstart tells contributors to run.
+    # The `go build`/`go test` job above never touches vendorHash or the
+    # Nix sandbox's checkPhase PATH, so a stale hash or a check-only PATH
+    # dependency (both bit us once already, see d286182) can merge silently
+    # otherwise. flox/install-flox-action bundles its own Nix when the
+    # runner doesn't have one, so no separate Nix installer is needed.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: flox/install-flox-action@v2
 
-      - name: nix build .#zen
-        run: nix build .#zen -L
+      - name: flox build zen
+        run: flox build zen
