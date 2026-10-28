@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/mgreau/zen/internal/gitrepo"
 	"github.com/mgreau/zen/internal/config"
+	"github.com/mgreau/zen/internal/gitrepo"
 	"github.com/mgreau/zen/internal/terminal"
 	"github.com/mgreau/zen/internal/ui"
 	wt "github.com/mgreau/zen/internal/worktree"

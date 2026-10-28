@@ -529,6 +529,8 @@ func pollOnce(ctx context.Context, st *reconciler.PollMemory, queue workqueue.In
 		}
 	}
 
+	notifyUnconfiguredReviewRequests(ctx, st)
+
 	st.LegacySeen = false
 	saveState(st, kept)
 }
@@ -668,4 +670,46 @@ func rotateLogIfNeeded() {
 	os.Stderr = f
 
 	fmt.Printf("[%s] Log rotated (previous log saved as watch.log.1)\n", time.Now().Format(time.RFC3339))
+}
+
+// notifyUnconfiguredReviewRequests notifies once for each review request in a
+// repository that is not in `repos:`. The per-repository poll above cannot see
+// those, and the daemon cannot prepare a worktree for them either, since it
+// has no clone; a notification is all it can do. This is a separate unscoped
+// search, so its results never compete with the configured repositories'
+// for a page.
+func notifyUnconfiguredReviewRequests(ctx context.Context, st *reconciler.PollMemory) {
+	reviews, err := ghpkg.GetReviewRequests(ctx, "", cfg.IgnoreDrafts)
+	if err != nil {
+		fmt.Printf("[%s] Error fetching review requests outside configured repos: %v\n", time.Now().Format(time.RFC3339), err)
+		return
+	}
+	for _, pr := range unconfiguredToNotify(cfg, reviews, st) {
+		fmt.Printf("[%s] New PR review request outside configured repos: %s#%d - %s (by %s)\n",
+			time.Now().Format(time.RFC3339), pr.Repository.NameWithOwner, pr.Number, pr.Title, pr.Author.Login)
+		notify.PRReview(pr.Number, pr.Title, pr.Author.Login, pr.Repository.NameWithOwner)
+	}
+}
+
+// unconfiguredToNotify returns the review requests in unconfigured
+// repositories that have not been notified yet, and records them in st so the
+// next poll stays quiet. They are keyed by owner/repo rather than a short
+// name, which a configured repo's key never contains. A legacy state file is
+// absorbed without notifying, as the configured poll does.
+func unconfiguredToNotify(c *config.Config, reviews []ghpkg.ReviewRequest, st *reconciler.PollMemory) []ghpkg.ReviewRequest {
+	var out []ghpkg.ReviewRequest
+	for _, pr := range reviews {
+		if _, ok := c.ConfiguredRepo(pr.Repository.NameWithOwner); ok {
+			continue
+		}
+		key := reconciler.MakePRKey(pr.Repository.NameWithOwner, pr.Number)
+		if st.NotifiedNew[key] {
+			continue
+		}
+		st.NotifiedNew[key] = true
+		if !st.LegacySeen {
+			out = append(out, pr)
+		}
+	}
+	return out
 }
