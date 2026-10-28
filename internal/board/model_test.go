@@ -1,6 +1,12 @@
 package board
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mgreau/zen/internal/config"
+)
 
 func TestSplitTableHeights(t *testing.T) {
 	tests := []struct {
@@ -93,5 +99,28 @@ func TestMyRepoColWidth(t *testing.T) {
 				t.Errorf("myRepoColWidth(%v) = %d, want %d", tt.repos, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestReviewRepoColWidth_fitsOwnerRepoLabels(t *testing.T) {
+	rows := []ReviewRow{{Repo: "flox"}, {Repo: "flox/flox-kind-demo"}}
+	if got, want := reviewRepoColWidth(rows), len("flox/flox-kind-demo"); got != want {
+		t.Errorf("reviewRepoColWidth = %d, want %d", got, want)
+	}
+}
+
+func TestReviewKeyV_unconfiguredRepoExplainsInsteadOfLaunching(t *testing.T) {
+	m := NewModel(&config.Config{})
+	m.focus = FocusReview
+	m.reviewRows = []ReviewRow{{Repo: "flox/flox-kind-demo", Number: 7}}
+	m.refreshTableContent()
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
+
+	if cmd != nil {
+		t.Fatal("v launched a review for a repo with no clone")
+	}
+	if got := next.(Model).statusMsg; !strings.Contains(got, "not in repos:") {
+		t.Errorf("statusMsg = %q, want it to say the repo is not configured", got)
 	}
 }

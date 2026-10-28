@@ -16,10 +16,6 @@ import (
 // fetchTimeout bounds a single board refresh across all configured repos.
 const fetchTimeout = 25 * time.Second
 
-// maxConcurrentRepoFetches caps how many repos are queried at once, so a
-// large repo list doesn't fan out into an unbounded burst of `gh` processes.
-const maxConcurrentRepoFetches = 6
-
 // maxConcurrentFileChecks caps concurrent "which files does this PR touch"
 // lookups used to detect watch_paths membership for Needs Your Review.
 const maxConcurrentFileChecks = 5
@@ -51,7 +47,7 @@ type MyPRRow struct {
 type ReviewRow struct {
 	Kind    string // github.ReviewKindNew or github.ReviewKindRereview
 	Number  int
-	Repo    string // short config name
+	Repo    string // config short name, or owner/repo when unconfigured
 	Title   string
 	Author  string
 	URL     string
@@ -100,10 +96,7 @@ func FetchMyPRs(ctx context.Context, cfg *config.Config) ([]MyPRRow, error) {
 func myPRRows(cfg *config.Config, prs []github.MyPR) []MyPRRow {
 	rows := make([]MyPRRow, 0, len(prs))
 	for _, pr := range prs {
-		repo := pr.Repository.NameWithOwner
-		if short, ok := cfg.ConfiguredRepo(repo); ok {
-			repo = short
-		}
+		repo := repoLabel(cfg, pr.Repository.NameWithOwner)
 		age, ageSecs := ageOf(pr.CreatedAt)
 		rows = append(rows, MyPRRow{
 			Status:  ClassifyMyPR(pr),
@@ -120,54 +113,52 @@ func myPRRows(cfg *config.Config, prs []github.MyPR) []MyPRRow {
 	return rows
 }
 
-// FetchReviewRequests fetches PRs the user has been asked to review across
-// all configured repos, unfiltered by the `authors` config — a "don't miss
-// anything" dashboard shouldn't hide a review request just because the
-// author isn't in the curated inbox list. Sorted into three tiers —
+// repoLabel is how a row names its repository: the config short name when
+// the repo is configured, otherwise its owner/repo, which RepoFullName
+// passes through unchanged.
+func repoLabel(cfg *config.Config, full string) string {
+	if short, ok := cfg.ConfiguredRepo(full); ok {
+		return short
+	}
+	return full
+}
+
+// reviewRows turns review-request search results into table rows, labelled
+// the same way as My Pull Requests.
+func reviewRows(cfg *config.Config, reqs []github.ReviewRequest) []ReviewRow {
+	rows := make([]ReviewRow, 0, len(reqs))
+	for _, rr := range reqs {
+		age, ageSecs := ageOf(rr.CreatedAt)
+		rows = append(rows, ReviewRow{
+			Kind:    rr.Kind,
+			Number:  rr.Number,
+			Repo:    repoLabel(cfg, rr.Repository.NameWithOwner),
+			Title:   rr.Title,
+			Author:  rr.Author.Login,
+			URL:     rr.URL,
+			Age:     age,
+			ageSecs: ageSecs,
+		})
+	}
+	return rows
+}
+
+// FetchReviewRequests fetches PRs the user has been asked to review in every
+// repository, configured or not, unfiltered by the `authors` config — a
+// "don't miss anything" dashboard shouldn't hide a review request just
+// because the author isn't in the curated inbox list or the repo isn't in
+// `repos:`. One unscoped search covers them all. Sorted into three tiers —
 // configured authors, PRs touching a configured watch_paths entry, then
 // everyone else — and by age (most recent first) within each tier.
 func FetchReviewRequests(ctx context.Context, cfg *config.Config) ([]ReviewRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 
-	repos := cfg.RepoNames()
-	rowsByRepo := make([][]ReviewRow, len(repos))
-
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(maxConcurrentRepoFetches)
-	for i, repo := range repos {
-		g.Go(func() error {
-			full := cfg.RepoFullName(repo)
-			reqs, err := github.GetReviewRequests(gctx, full, false)
-			if err != nil {
-				return fmt.Errorf("fetching review requests in %s: %w", repo, err)
-			}
-			rows := make([]ReviewRow, 0, len(reqs))
-			for _, rr := range reqs {
-				age, ageSecs := ageOf(rr.CreatedAt)
-				rows = append(rows, ReviewRow{
-					Kind:    rr.Kind,
-					Number:  rr.Number,
-					Repo:    repo,
-					Title:   rr.Title,
-					Author:  rr.Author.Login,
-					URL:     rr.URL,
-					Age:     age,
-					ageSecs: ageSecs,
-				})
-			}
-			rowsByRepo[i] = rows
-			return nil
-		})
+	reqs, err := github.GetReviewRequests(ctx, "", false)
+	if err != nil {
+		return nil, fmt.Errorf("fetching review requests: %w", err)
 	}
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	var all []ReviewRow
-	for _, rows := range rowsByRepo {
-		all = append(all, rows...)
-	}
+	all := reviewRows(cfg, reqs)
 
 	assignReviewTiers(ctx, cfg, all)
 

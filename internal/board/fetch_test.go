@@ -97,3 +97,22 @@ func TestMyPRRows_sameRepoNameUnderTwoOwnersStaysDistinct(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewRows_labelsLikeMyPRs(t *testing.T) {
+	cfg := &config.Config{Repos: map[string]config.RepoConfig{
+		"flox": {FullName: "flox/flox"},
+	}}
+	reqs := []github.ReviewRequest{
+		{Number: 1, Repository: github.RepoInfo{NameWithOwner: "flox/flox"}},
+		{Number: 2, Repository: github.RepoInfo{NameWithOwner: "flox/flox-kind-demo"}},
+	}
+
+	rows := reviewRows(cfg, reqs)
+
+	if got := rows[0].Repo; got != "flox" {
+		t.Errorf("configured repo labelled %q, want %q", got, "flox")
+	}
+	if got := rows[1].Repo; got != "flox/flox-kind-demo" {
+		t.Errorf("unconfigured repo labelled %q, want its owner/repo", got)
+	}
+}
