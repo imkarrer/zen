@@ -8,6 +8,7 @@ import (
 
 	"github.com/mgreau/zen/internal/agentdeck"
 	"github.com/mgreau/zen/internal/config"
+	"github.com/mgreau/zen/internal/reconciler"
 )
 
 // fakeAgentDeck points agentdeck at a script that appends each argv, one
@@ -80,5 +81,63 @@ func TestForgetReviewSession(t *testing.T) {
 	}
 	if !strings.Contains(string(calls), "session\nremove\n-force\n-json\ns-1\n") {
 		t.Errorf("dead session was not removed:\n%s", calls)
+	}
+}
+
+func TestSyncReviewSessionRegistersOnce(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	withCfg(t, &config.Config{Agent: "claude", ClaudeBin: "claude", Terminal: "agent-deck", Watch: config.WatchConfig{ReviewSessions: true}})
+	log := fakeAgentDeck(t, `{"success": true, "id": "s-1"}`)
+	st := reconciler.DecodePollMemory(nil)
+
+	syncReviewSession(&st, "repo:5", "/src/repo-pr-5")
+	syncReviewSession(&st, "repo:5", "/src/repo-pr-5")
+
+	if !st.Sessions["repo:5"] {
+		t.Fatal("registered session not recorded in poll state")
+	}
+	calls, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(calls), "add\n"); n != 1 {
+		t.Errorf("agent-deck add called %d times, want 1:\n%s", n, calls)
+	}
+}
+
+func TestSyncReviewSessionRecordsExistingSession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	withCfg(t, &config.Config{Agent: "claude", ClaudeBin: "claude", Terminal: "agent-deck", Watch: config.WatchConfig{ReviewSessions: true}})
+	fakeAgentDeck(t, `{"success": false, "code": "ALREADY_EXISTS", "existing_id": "s-1"}`)
+	st := reconciler.DecodePollMemory(nil)
+
+	syncReviewSession(&st, "repo:5", "/src/repo-pr-5")
+
+	if !st.Sessions["repo:5"] {
+		t.Fatal("a worktree that already has a session should be recorded")
+	}
+}
+
+func TestSyncReviewSessionRetriesAfterFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	withCfg(t, &config.Config{Agent: "claude", ClaudeBin: "claude", Terminal: "agent-deck", Watch: config.WatchConfig{ReviewSessions: true}})
+	fakeAgentDeck(t, `{"success": false, "code": "INVALID", "error": "boom"}`)
+	st := reconciler.DecodePollMemory(nil)
+
+	syncReviewSession(&st, "repo:5", "/src/repo-pr-5")
+
+	if st.Sessions["repo:5"] {
+		t.Fatal("a failed registration must not be recorded, so the next poll retries")
+	}
+}
+
+func TestSyncReviewSessionOffDoesNotRecord(t *testing.T) {
+	withCfg(t, &config.Config{Terminal: "agent-deck"})
+	st := reconciler.DecodePollMemory(nil)
+
+	syncReviewSession(&st, "repo:5", "/src/repo-pr-5")
+
+	if st.Sessions["repo:5"] {
+		t.Fatal("recorded a session with watch.review_sessions off")
 	}
 }

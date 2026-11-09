@@ -283,7 +283,7 @@ func watchDaemon() error {
 	slackQueue := inmem.NewWorkQueue(10)
 	setupRec := reconciler.NewSetupReconciler(cfg)
 	cleanupRec := reconciler.NewCleanupReconciler(cfg)
-	setupRec.OnCreated(registerReviewSession)
+	setupRec.OnCreated(func(path string) { registerReviewSession(path) })
 	cleanupRec.OnRemoved(forgetReviewSession)
 
 	st := loadCheckState()
@@ -494,6 +494,10 @@ func pollOnce(ctx context.Context, st *reconciler.PollMemory, queue workqueue.In
 		exists, head := reviewWorktreeHEAD(cfg, short, pr.Number)
 		if head != "" {
 			st.AppliedSHAs[key] = head
+		}
+
+		if exists {
+			syncReviewSession(st, key, wt.Resolve(cfg, short, wt.PRName(short, pr.Number)))
 		}
 
 		if reconciler.ShouldNotifyNew(st.NotifiedNew[key], exists) {
@@ -718,24 +722,41 @@ func unconfiguredToNotify(c *config.Config, reviews []ghpkg.ReviewRequest, st *r
 	return out
 }
 
-// registerReviewSession adds an unstarted agent-deck session for a review
-// worktree the daemon just created, running the command `zen review` would
-// launch. Gated on watch.review_sessions, read at call time so a config
-// reload takes effect.
-func registerReviewSession(worktreePath string) {
-	if !cfg.Watch.ReviewSessions {
+// syncReviewSession registers an agent-deck session for an open review
+// request's existing worktree the first time the poll sees it, and records
+// that in st. A worktree created before watch.review_sessions was turned on
+// gets its session this way; one the daemon creates is registered by the
+// setup hook and recorded here on the next poll. A session deleted in
+// agent-deck after that is not registered again.
+func syncReviewSession(st *reconciler.PollMemory, key, worktreePath string) {
+	if st.Sessions[key] {
 		return
+	}
+	if registerReviewSession(worktreePath) {
+		st.Sessions[key] = true
+	}
+}
+
+// registerReviewSession adds an unstarted agent-deck session for a review
+// worktree, running the command `zen review` would launch. It reports whether
+// the worktree now has a session, added or already there. Gated on
+// watch.review_sessions, read at call time so a config reload takes effect.
+func registerReviewSession(worktreePath string) bool {
+	if !cfg.Watch.ReviewSessions {
+		return false
 	}
 	ag := cfg.NewAgent("")
 	ensureReviewPrompt(ag)
 	command := ag.StartCommand(ag.ReviewPrompt(worktreePath), "")
 	added, err := agentdeck.Register(worktreePath, command)
-	switch {
-	case err != nil:
+	if err != nil {
 		fmt.Printf("[%s] Warning: agent-deck session for %s: %v\n", time.Now().Format(time.RFC3339), worktreePath, err)
-	case added:
+		return false
+	}
+	if added {
 		fmt.Printf("[%s] Registered agent-deck session for %s\n", time.Now().Format(time.RFC3339), worktreePath)
 	}
+	return true
 }
 
 // forgetReviewSession drops the agent-deck session of a review worktree that

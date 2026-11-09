@@ -76,7 +76,7 @@ On each poll, setup re-runs if GitHub's head SHA differs from the worktree. Line
 
 With `terminal: agent-deck`, `watch.review_sessions: true` makes a review request show up in agent-deck by itself. For every PR in a configured repo where you are a requested reviewer, the daemon creates the review worktree, whoever the author is, rather than only for `authors:`. It then registers an agent-deck session for it in the `zen` group, titled after the worktree. The session runs the same command `zen review` would launch, but is not started: it waits in agent-deck's list (shown as stopped or errored until started) and no agent runs until you start it.
 
-A session is registered only when the daemon creates the worktree, so deleting one in agent-deck does not bring it back on the next poll, and worktrees that existed before the setting was turned on get none; `zen review resume` opens those. When cleanup removes a merged review's worktree, it also removes that worktree's agent-deck session, unless its agent is still running. Setting `review_sessions` with any other terminal is a config error.
+Each review request gets a session once. A worktree the daemon creates is registered straight away; one that already existed, such as a review prepared before the setting was turned on, is registered on the next poll. The daemon records this in `last_check.json`, so a session you delete in agent-deck does not come back. When cleanup removes a merged review's worktree, it also removes that worktree's agent-deck session, unless its agent is still running. Setting `review_sessions` with any other terminal is a config error.
 
 ## Merged-review cleanup
 
