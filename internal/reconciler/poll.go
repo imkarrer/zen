@@ -43,8 +43,11 @@ type PollInput struct {
 	Closed         bool
 	WorktreeExists bool
 	AuthorInList   bool
-	WorktreeHEAD   string
-	HeadOID        string
+	// CreateAll creates a worktree for every request, whoever the author
+	// (watch.review_sessions).
+	CreateAll    bool
+	WorktreeHEAD string
+	HeadOID      string
 }
 
 // ShouldSyncWorktree is whether the daemon may fetch this PR.
@@ -88,7 +91,7 @@ func DecideDaemon(in PollInput) PollAction {
 		return PollSkip
 	}
 	if !in.WorktreeExists {
-		if in.AuthorInList {
+		if in.AuthorInList || in.CreateAll {
 			return PollCreate
 		}
 		return PollSkip

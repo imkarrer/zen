@@ -27,6 +27,14 @@ type prMergeInfoFunc func(ctx context.Context, fullRepo string, prNumber int) (*
 type CleanupReconciler struct {
 	cfg         *config.Config
 	prMergeInfo prMergeInfoFunc
+
+	// onRemoved, when set, runs after a review worktree is removed.
+	onRemoved func(worktreePath string)
+}
+
+// OnRemoved sets a hook run after cleanup removes a review worktree.
+func (r *CleanupReconciler) OnRemoved(fn func(worktreePath string)) {
+	r.onRemoved = fn
 }
 
 // NewCleanupReconciler creates a new CleanupReconciler.
@@ -97,6 +105,9 @@ func (r *CleanupReconciler) Reconcile(ctx context.Context, key string, _ workque
 		return fmt.Errorf("remove worktree: %w", err)
 	}
 
+	if r.onRemoved != nil {
+		r.onRemoved(worktreePath)
+	}
 	logf("Cleanup complete for %s", label)
 	return nil
 }

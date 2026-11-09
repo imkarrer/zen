@@ -236,3 +236,35 @@ func runCleanupGit(t *testing.T, directory string, args ...string) {
 		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
 }
+
+func TestCleanupReconcile_runsOnRemovedAfterRemoval(t *testing.T) {
+	cfg, worktreePath, prHead := cleanupFixture(t)
+	rec := NewCleanupReconciler(cfg)
+	rec.prMergeInfo = mergedInfo(prHead, 2*time.Hour)
+	var got []string
+	rec.OnRemoved(func(p string) {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Error("OnRemoved ran before the worktree was gone")
+		}
+		got = append(got, p)
+	})
+	if err := rec.Reconcile(context.Background(), "testrepo:999", workqueue.Options{}); err != nil {
+		t.Fatalf("Reconcile() error: %v", err)
+	}
+	if len(got) != 1 || got[0] != worktreePath {
+		t.Fatalf("OnRemoved calls = %q, want [%q]", got, worktreePath)
+	}
+}
+
+func TestCleanupReconcile_skipsOnRemovedWhenKept(t *testing.T) {
+	cfg, worktreePath, prHead := cleanupFixture(t)
+	if err := os.WriteFile(filepath.Join(worktreePath, "local-edit"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := NewCleanupReconciler(cfg)
+	rec.prMergeInfo = mergedInfo(prHead, 2*time.Hour)
+	rec.OnRemoved(func(string) { t.Error("OnRemoved ran for a worktree cleanup kept") })
+	if err := rec.Reconcile(context.Background(), "testrepo:999", workqueue.Options{}); err != nil {
+		t.Fatalf("Reconcile() error: %v", err)
+	}
+}

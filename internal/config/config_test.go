@@ -528,3 +528,37 @@ watch:
 		t.Errorf("CleanupAfterDays = %d, want 7", cfg.Watch.CleanupAfterDays)
 	}
 }
+
+func TestLoadReviewSessionsNeedsAgentDeck(t *testing.T) {
+	tests := []struct {
+		name     string
+		terminal string
+		wantErr  bool
+	}{
+		{"with agent-deck", "agent-deck", false},
+		{"with another terminal", "kitty", true},
+		{"with the default terminal", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			t.Setenv("HOME", tmpDir)
+			t.Setenv("ZEN_HOME", "")
+			zenDir := filepath.Join(tmpDir, ".zen")
+			os.MkdirAll(zenDir, 0o755)
+			yamlContent := "repos:\n  mono:\n    full_name: chainguard-dev/mono\n    base_path: /tmp/mono\nwatch:\n  review_sessions: true\n"
+			if tt.terminal != "" {
+				yamlContent += "terminal: " + tt.terminal + "\n"
+			}
+			os.WriteFile(filepath.Join(zenDir, "config.yaml"), []byte(yamlContent), 0o644)
+
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && !cfg.Watch.ReviewSessions {
+				t.Error("Watch.ReviewSessions not loaded")
+			}
+		})
+	}
+}

@@ -52,6 +52,7 @@ type result struct {
 	Error      string `json:"error"`
 	ExistingID string `json:"existing_id"`
 	Status     string `json:"status"`
+	Path       string `json:"path"`
 }
 
 func call(args ...string) (result, error) {
@@ -79,7 +80,7 @@ func call(args ...string) (result, error) {
 // starts a second agent in the same worktree.
 func OpenTab(workDir, command string) error {
 	title := filepath.Base(workDir)
-	launch := []string{"launch", "-title", title, "-group", Group, "-no-parent", "-cmd", command, "-json", workDir}
+	launch := sessionArgs("launch", workDir, command)
 
 	r, err := call(launch...)
 	if err != nil {
@@ -101,7 +102,7 @@ func OpenTab(workDir, command string) error {
 	if err != nil {
 		return err
 	}
-	if show.Status != "stopped" && show.Status != "error" {
+	if !isDead(show.Status) {
 		return fmt.Errorf("agent-deck already has a live session %q for %s; attach with `agent-deck session attach %s`", title, workDir, r.ExistingID)
 	}
 	rm, err := call("session", "remove", "-force", "-json", r.ExistingID)
@@ -120,4 +121,54 @@ func OpenTab(workDir, command string) error {
 		return fmt.Errorf("agent-deck launch: %s", r.Error)
 	}
 	return nil
+}
+
+// sessionArgs builds the add or launch argv for a zen session in workDir.
+func sessionArgs(verb, workDir, command string) []string {
+	return []string{verb, "-title", filepath.Base(workDir), "-group", Group, "-no-parent", "-cmd", command, "-json", workDir}
+}
+
+// isDead reports whether an agent-deck status means no agent is running. A
+// session that was added but never started settles at "error" too.
+func isDead(status string) bool {
+	return status == "stopped" || status == "error"
+}
+
+// Register adds an agent-deck session for workDir that runs command once
+// started, without starting it, so it waits in agent-deck's list. It reports
+// whether a session was added; a worktree that already has one is left as
+// it is.
+func Register(workDir, command string) (bool, error) {
+	r, err := call(sessionArgs("add", workDir, command)...)
+	if err != nil {
+		return false, err
+	}
+	if r.Success {
+		return true, nil
+	}
+	if r.Code == "ALREADY_EXISTS" {
+		return false, nil
+	}
+	return false, fmt.Errorf("agent-deck add: %s", r.Error)
+}
+
+// Forget removes the agent-deck session zen made for workDir, once the
+// worktree is gone. It reports whether one was removed. A session that is
+// missing, belongs to another path, or still has a live agent is left alone.
+func Forget(workDir string) (bool, error) {
+	show, err := call("session", "show", "-json", filepath.Base(workDir))
+	if err != nil {
+		return false, err
+	}
+	if show.ID == "" || filepath.Clean(show.Path) != filepath.Clean(workDir) || !isDead(show.Status) {
+		return false, nil
+	}
+	rm, err := call("session", "remove", "-force", "-json", show.ID)
+	if err != nil {
+		return false, err
+	}
+	if !rm.Success {
+		return false, fmt.Errorf("agent-deck session remove %s: %s", show.ID, rm.Error)
+	}
+	return true, nil
 }

@@ -89,6 +89,11 @@ type WatchConfig struct {
 	MaxRetries          int    `yaml:"max_retries"`           // default 5
 	DigestInterval      string `yaml:"digest_interval"`       // "" = disabled, e.g. "2h"
 
+	// ReviewSessions makes the daemon prepare a worktree for every direct
+	// review request, not only those from authors, and register an unstarted
+	// agent-deck session for it. Requires terminal: agent-deck.
+	ReviewSessions bool `yaml:"review_sessions"`
+
 	// Deprecated: merged-review cleanup is gated by CleanupAfterMerge. Still
 	// parsed so existing config files load; the daemon no longer reads it.
 	CleanupAfterDays int `yaml:"cleanup_after_days,omitempty"`
@@ -234,6 +239,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.Terminal != "iterm" && cfg.Terminal != "ghostty" && cfg.Terminal != "kitty" && cfg.Terminal != "macos" && cfg.Terminal != "agent-deck" {
 		return nil, fmt.Errorf("invalid terminal type %q: must be \"iterm\", \"ghostty\", \"kitty\", \"macos\", or \"agent-deck\"", cfg.Terminal)
+	}
+	if cfg.Watch.ReviewSessions && cfg.Terminal != "agent-deck" {
+		return nil, fmt.Errorf("watch.review_sessions needs terminal: agent-deck (terminal is %q)", cfg.Terminal)
 	}
 	if cfg.Repos == nil {
 		cfg.Repos = make(map[string]RepoConfig)

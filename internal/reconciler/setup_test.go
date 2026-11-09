@@ -3,6 +3,10 @@ package reconciler
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"chainguard.dev/driftlessaf/workqueue"
@@ -10,6 +14,7 @@ import (
 	"chainguard.dev/driftlessaf/workqueue/inmem"
 	"github.com/mgreau/zen/internal/config"
 	ghpkg "github.com/mgreau/zen/internal/github"
+	wt "github.com/mgreau/zen/internal/worktree"
 )
 
 func TestMakePRKey(t *testing.T) {
@@ -313,5 +318,80 @@ func TestReconcile_liveDraftRaceDoesNotTouchGit(t *testing.T) {
 	})
 	if err := rec.Reconcile(context.Background(), "mono:8", workqueue.Options{}); err != nil {
 		t.Fatalf("open→draft race must skip, not fail git: %v", err)
+	}
+}
+
+// prOriginFixture builds a clone at basePath/testrepo whose origin carries
+// refs/pull/5/head, so Reconcile can create a review worktree offline.
+// PATH is narrowed to git alone so the "worktree ready" notification fails
+// quietly instead of reaching the desktop.
+func prOriginFixture(t *testing.T) (cfg *config.Config, head string) {
+	t.Helper()
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not on PATH")
+	}
+	run := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command(gitBin, args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	upstream := t.TempDir()
+	run(upstream, "init", "-b", "main")
+	run(upstream, "config", "user.email", "test@example.com")
+	run(upstream, "config", "user.name", "Test")
+	run(upstream, "config", "commit.gpgsign", "false")
+	if err := os.WriteFile(filepath.Join(upstream, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(upstream, "add", "f")
+	run(upstream, "commit", "-m", "init")
+	head = run(upstream, "rev-parse", "HEAD")
+	run(upstream, "update-ref", "refs/pull/5/head", head)
+
+	basePath := t.TempDir()
+	run(basePath, "clone", "-q", upstream, filepath.Join(basePath, "testrepo"))
+
+	binDir := t.TempDir()
+	if err := os.Symlink(gitBin, filepath.Join(binDir, "git")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+
+	cfg = &config.Config{Repos: map[string]config.RepoConfig{
+		"testrepo": {FullName: "test/testrepo", BasePath: basePath},
+	}}
+	return cfg, head
+}
+
+func TestReconcile_runsOnCreatedOnlyForNewWorktrees(t *testing.T) {
+	cfg, head := prOriginFixture(t)
+	rec := NewSetupReconciler(cfg)
+	rec.prDetails = func(context.Context, string, int) (*ghpkg.PRDetails, error) {
+		return &ghpkg.PRDetails{State: "open", HeadSHA: head}, nil
+	}
+	rec.renderContext = func(context.Context, string, int) (string, error) { return "context", nil }
+	var got []string
+	rec.OnCreated(func(p string) {
+		if _, err := os.Stat(filepath.Join(p, "f")); err != nil {
+			t.Errorf("OnCreated ran before the worktree was checked out: %v", err)
+		}
+		got = append(got, p)
+	})
+	rec.StorePRData("testrepo:5", ghpkg.ReviewRequest{Number: 5, Title: "t", HeadRefOid: head})
+
+	for i := 0; i < 2; i++ {
+		if err := rec.Reconcile(context.Background(), "testrepo:5", workqueue.Options{}); err != nil {
+			t.Fatalf("Reconcile #%d: %v", i+1, err)
+		}
+	}
+	want := wt.PRPath(cfg.RepoBasePath("testrepo"), "testrepo", 5)
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("OnCreated calls = %q, want one for %q", got, want)
 	}
 }

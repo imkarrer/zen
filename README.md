@@ -184,7 +184,7 @@ Session ID, model, token usage, and last activity per worktree.
 
 Two loops keep zen useful.
 
-The **automated loop** is the daemon. It polls GitHub and notifies you of new review requests. Worktrees for `authors:` are created silently, with context already injected, and existing review checkouts fast-forward when the PR head moves. Local edits and live agents are left alone; a force-push waits for `zen review`, which asks before resetting. After a successful catch-up you get a quieter “PR #N updated”. A review worktree is removed once its PR has been merged for `cleanup_after_merge` (1h by default); work streams never are. The daemon never opens terminal tabs.
+The **automated loop** is the daemon. It polls GitHub and notifies you of new review requests. Worktrees for `authors:` are created silently, with context already injected, and existing review checkouts fast-forward when the PR head moves. Local edits and live agents are left alone; a force-push waits for `zen review`, which asks before resetting. After a successful catch-up you get a quieter “PR #N updated”. A review worktree is removed once its PR has been merged for `cleanup_after_merge` (1h by default); work streams never are. The daemon never opens terminal tabs. With agent-deck, it can list each review request there as a session ready to start (see [review sessions](docs/configuration.md#review-sessions-in-agent-deck)).
 
 The **manual loop** is yours: check what needs your attention, open a worktree in a new tab with Claude, do the work.
 
