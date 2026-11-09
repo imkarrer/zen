@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -76,5 +77,25 @@ func TestEncodeCheckFile_dropsSeenPRs(t *testing.T) {
 	}
 	if len(file.NotifiedNew) != 1 || file.AppliedSHAs["zen:18"] != "deadbeef" {
 		t.Fatalf("file = %+v", file)
+	}
+}
+
+func TestCheckFile_sessionsRoundTrip(t *testing.T) {
+	m := DecodePollMemory(nil)
+	m.Sessions["repo:5"] = true
+	m.Sessions["other:1"] = true
+	data, err := EncodeCheckFile(m, "2026-01-01T00:00:00Z", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"agent_deck_sessions": [
+    "other:1",
+    "repo:5"
+  ]`) {
+		t.Errorf("sessions not written sorted:\n%s", data)
+	}
+	back := DecodePollMemory(data)
+	if !back.Sessions["repo:5"] || !back.Sessions["other:1"] || len(back.Sessions) != 2 {
+		t.Errorf("round trip = %v", back.Sessions)
 	}
 }
