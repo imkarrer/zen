@@ -257,3 +257,24 @@ func TestShouldNotifyNew(t *testing.T) {
 		})
 	}
 }
+
+func TestDecideDaemon_createAll(t *testing.T) {
+	sha := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	tests := []struct {
+		name string
+		in   PollInput
+		want PollAction
+	}{
+		{"request from an unlisted author is created", PollInput{InReviewSearch: true, CreateAll: true, HeadOID: sha}, PollCreate},
+		{"without it, still skipped", PollInput{InReviewSearch: true, HeadOID: sha}, PollSkip},
+		{"closed PR still skipped", PollInput{InReviewSearch: true, CreateAll: true, Closed: true, HeadOID: sha}, PollSkip},
+		{"silenced draft still skipped", PollInput{InReviewSearch: true, CreateAll: true, IgnoreDrafts: true, IsDraft: true, HeadOID: sha}, PollSkip},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := DecideDaemon(tt.in); got != tt.want {
+				t.Fatalf("DecideDaemon = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}

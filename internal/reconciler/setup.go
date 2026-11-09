@@ -30,6 +30,19 @@ type SetupReconciler struct {
 	prDataMu  sync.RWMutex
 	prData    map[string]ghpkg.ReviewRequest
 	prDetails prDetailsFunc
+
+	// renderContext renders the PR context file. Tests replace it so
+	// Reconcile runs without GitHub.
+	renderContext func(ctx context.Context, fullRepo string, prNumber int) (string, error)
+
+	// onCreated, when set, runs after a new review worktree is ready.
+	onCreated func(worktreePath string)
+}
+
+// OnCreated sets a hook run after the daemon creates a review worktree and
+// injects its context. It is not run for refreshes of existing worktrees.
+func (r *SetupReconciler) OnCreated(fn func(worktreePath string)) {
+	r.onCreated = fn
 }
 
 // NewSetupReconciler creates a new SetupReconciler.
@@ -140,6 +153,9 @@ func (r *SetupReconciler) Reconcile(ctx context.Context, key string, _ workqueue
 		if err := notify.WorktreeReady(prNumber, worktreePath); err != nil {
 			logf("Warning: notification failed for %s: %v", label, err)
 		}
+		if r.onCreated != nil {
+			r.onCreated(worktreePath)
+		}
 		logf("Setup complete for %s (worktree: %s)", label, worktreePath)
 	case outcome == review.SyncUpdated:
 		if err := notify.PRUpdated(prNumber, pr.Title, repo); err != nil {
@@ -171,7 +187,11 @@ func (r *SetupReconciler) ensureContextInjected(ctx context.Context, worktreePat
 	if !force && ag.ContextPresent(worktreePath) {
 		return nil
 	}
-	rendered, err := ctxpkg.RenderPRContext(ctx, fullRepo, prNumber)
+	render := r.renderContext
+	if render == nil {
+		render = ctxpkg.RenderPRContext
+	}
+	rendered, err := render(ctx, fullRepo, prNumber)
 	if err != nil {
 		return err
 	}

@@ -57,6 +57,7 @@ watch:
   session_scan_interval: "10s"  # How often to scan Claude session states
   concurrency: 2                # Parallel worktree setups
   max_retries: 5                # Max retry attempts for git failures
+  review_sessions: false        # Register an agent-deck session per review request (needs terminal: agent-deck)
 
 # Slack task watcher (opt-in, off by default) — see "Slack task watcher" below.
 slack:
@@ -70,6 +71,12 @@ slack:
 The daemon re-reads `config.yaml` on every poll tick. Changes to `poll_interval`, `authors`, `repos`, and other settings take effect without restarting.
 
 On each poll, setup re-runs if GitHub's head SHA differs from the worktree. Linear updates fast-forward. Local edits and a live agent are left alone. A head that cannot be fast-forwarded onto — rewritten, or behind the worktree — waits for `zen review`, which asks before `reset --hard` and only from a terminal.
+
+## Review sessions in agent-deck
+
+With `terminal: agent-deck`, `watch.review_sessions: true` makes a review request show up in agent-deck by itself. For every PR in a configured repo where you are a requested reviewer, the daemon creates the review worktree, whoever the author is, rather than only for `authors:`. It then registers an agent-deck session for it in the `zen` group, titled after the worktree. The session runs the same command `zen review` would launch, but is not started: it waits in agent-deck's list (shown as stopped or errored until started) and no agent runs until you start it.
+
+A session is registered only when the daemon creates the worktree, so deleting one in agent-deck does not bring it back on the next poll, and worktrees that existed before the setting was turned on get none; `zen review resume` opens those. When cleanup removes a merged review's worktree, it also removes that worktree's agent-deck session, unless its agent is still running. Setting `review_sessions` with any other terminal is a config error.
 
 ## Merged-review cleanup
 

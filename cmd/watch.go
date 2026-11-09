@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/mgreau/zen/internal/agentdeck"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -282,6 +283,8 @@ func watchDaemon() error {
 	slackQueue := inmem.NewWorkQueue(10)
 	setupRec := reconciler.NewSetupReconciler(cfg)
 	cleanupRec := reconciler.NewCleanupReconciler(cfg)
+	setupRec.OnCreated(registerReviewSession)
+	cleanupRec.OnRemoved(forgetReviewSession)
 
 	st := loadCheckState()
 
@@ -509,6 +512,7 @@ func pollOnce(ctx context.Context, st *reconciler.PollMemory, queue workqueue.In
 			Closed:         pr.Closed,
 			WorktreeExists: exists,
 			AuthorInList:   cfg.IsAuthor(pr.Author.Login),
+			CreateAll:      cfg.Watch.ReviewSessions,
 			WorktreeHEAD:   head,
 			HeadOID:        pr.HeadRefOid,
 		})
@@ -712,4 +716,39 @@ func unconfiguredToNotify(c *config.Config, reviews []ghpkg.ReviewRequest, st *r
 		}
 	}
 	return out
+}
+
+// registerReviewSession adds an unstarted agent-deck session for a review
+// worktree the daemon just created, running the command `zen review` would
+// launch. Gated on watch.review_sessions, read at call time so a config
+// reload takes effect.
+func registerReviewSession(worktreePath string) {
+	if !cfg.Watch.ReviewSessions {
+		return
+	}
+	ag := cfg.NewAgent("")
+	ensureReviewPrompt(ag)
+	command := ag.StartCommand(ag.ReviewPrompt(worktreePath), "")
+	added, err := agentdeck.Register(worktreePath, command)
+	switch {
+	case err != nil:
+		fmt.Printf("[%s] Warning: agent-deck session for %s: %v\n", time.Now().Format(time.RFC3339), worktreePath, err)
+	case added:
+		fmt.Printf("[%s] Registered agent-deck session for %s\n", time.Now().Format(time.RFC3339), worktreePath)
+	}
+}
+
+// forgetReviewSession drops the agent-deck session of a review worktree that
+// cleanup removed, unless its agent is still running.
+func forgetReviewSession(worktreePath string) {
+	if !cfg.Watch.ReviewSessions {
+		return
+	}
+	removed, err := agentdeck.Forget(worktreePath)
+	switch {
+	case err != nil:
+		fmt.Printf("[%s] Warning: removing agent-deck session for %s: %v\n", time.Now().Format(time.RFC3339), worktreePath, err)
+	case removed:
+		fmt.Printf("[%s] Removed agent-deck session for %s\n", time.Now().Format(time.RFC3339), worktreePath)
+	}
 }

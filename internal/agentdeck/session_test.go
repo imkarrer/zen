@@ -170,3 +170,74 @@ func TestOpenTabMissingBinary(t *testing.T) {
 		t.Fatal("OpenTab succeeded without a binary")
 	}
 }
+
+func TestRegisterAddsWithoutStarting(t *testing.T) {
+	f := &fakeRun{t: t, replies: []string{launched}}
+	f.install()
+
+	added, err := Register("/src/repo-pr-7", `claude '/review-pr'`)
+	if err != nil || !added {
+		t.Fatalf("Register = %v, %v; want true, nil", added, err)
+	}
+	want := [][]string{{"add", "-title", "repo-pr-7", "-group", Group, "-no-parent", "-cmd", `claude '/review-pr'`, "-json", "/src/repo-pr-7"}}
+	if !reflect.DeepEqual(f.calls, want) {
+		t.Errorf("calls = %q, want %q", f.calls, want)
+	}
+}
+
+func TestRegisterKeepsExistingSession(t *testing.T) {
+	f := &fakeRun{t: t, replies: []string{exists}}
+	f.install()
+
+	added, err := Register("/src/repo-pr-7", "claude")
+	if err != nil || added {
+		t.Fatalf("Register = %v, %v; want false, nil", added, err)
+	}
+	if len(f.calls) != 1 {
+		t.Errorf("made %d calls, want only the add: %q", len(f.calls), f.calls)
+	}
+}
+
+func TestRegisterReportsFailure(t *testing.T) {
+	f := &fakeRun{t: t, replies: []string{`{"success": false, "code": "INVALID", "error": "bad path"}`}}
+	f.install()
+
+	if _, err := Register("/src/repo-pr-7", "claude"); err == nil || !strings.Contains(err.Error(), "bad path") {
+		t.Fatalf("Register error = %v, want agent-deck's message", err)
+	}
+}
+
+func TestForgetRemovesDeadSessionAtPath(t *testing.T) {
+	f := &fakeRun{t: t, replies: []string{`{"id": "s-1", "status": "error", "path": "/src/repo-pr-7"}`, removed}}
+	f.install()
+
+	gone, err := Forget("/src/repo-pr-7")
+	if err != nil || !gone {
+		t.Fatalf("Forget = %v, %v; want true, nil", gone, err)
+	}
+	want := [][]string{{"session", "show", "-json", "repo-pr-7"}, {"session", "remove", "-force", "-json", "s-1"}}
+	if !reflect.DeepEqual(f.calls, want) {
+		t.Errorf("calls = %q, want %q", f.calls, want)
+	}
+}
+
+func TestForgetLeavesOtherSessionsAlone(t *testing.T) {
+	for name, reply := range map[string]string{
+		"not found":    `{"success": false, "code": "NOT_FOUND", "error": "session 'repo-pr-7' not found"}`,
+		"another path": `{"id": "s-1", "status": "error", "path": "/elsewhere/repo-pr-7"}`,
+		"live agent":   `{"id": "s-1", "status": "waiting", "path": "/src/repo-pr-7"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeRun{t: t, replies: []string{reply}}
+			f.install()
+
+			gone, err := Forget("/src/repo-pr-7")
+			if err != nil || gone {
+				t.Fatalf("Forget = %v, %v; want false, nil", gone, err)
+			}
+			if len(f.calls) != 1 {
+				t.Errorf("made %d calls, want only the show: %q", len(f.calls), f.calls)
+			}
+		})
+	}
+}
