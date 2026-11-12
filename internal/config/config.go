@@ -113,10 +113,22 @@ type WatchConfig struct {
 	// agent-deck session for it. Requires terminal: agent-deck.
 	ReviewSessions bool `yaml:"review_sessions"`
 
+	// WaitingAlerts picks which "Claude is waiting" desktop alerts the
+	// session scan sends: "all" (default), "reviews" for PR review worktrees
+	// only, or "off".
+	WaitingAlerts string `yaml:"waiting_alerts"`
+
 	// Deprecated: merged-review cleanup is gated by CleanupAfterMerge. Still
 	// parsed so existing config files load; the daemon no longer reads it.
 	CleanupAfterDays int `yaml:"cleanup_after_days,omitempty"`
 }
+
+// Values for WatchConfig.WaitingAlerts.
+const (
+	WaitingAlertsAll     = "all"
+	WaitingAlertsReviews = "reviews"
+	WaitingAlertsOff     = "off"
+)
 
 // DispatchIntervalDuration returns the dispatch interval as a time.Duration,
 // falling back to the default of 10 seconds.
@@ -265,6 +277,13 @@ func Load() (*Config, error) {
 	}
 	if cfg.Watch.ReviewSessions && cfg.Terminal != "agent-deck" {
 		return nil, fmt.Errorf("watch.review_sessions needs terminal: agent-deck (terminal is %q)", cfg.Terminal)
+	}
+	switch cfg.Watch.WaitingAlerts {
+	case "":
+		cfg.Watch.WaitingAlerts = WaitingAlertsAll
+	case WaitingAlertsAll, WaitingAlertsReviews, WaitingAlertsOff:
+	default:
+		return nil, fmt.Errorf("invalid watch.waiting_alerts %q: must be \"all\", \"reviews\", or \"off\"", cfg.Watch.WaitingAlerts)
 	}
 	if cfg.Repos == nil {
 		cfg.Repos = make(map[string]RepoConfig)

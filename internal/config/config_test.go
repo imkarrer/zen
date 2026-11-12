@@ -910,3 +910,40 @@ func TestLoadReviewSessionsNeedsAgentDeck(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadWaitingAlerts(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{"default is all", "", WaitingAlertsAll, false},
+		{"all", "all", WaitingAlertsAll, false},
+		{"reviews", "reviews", WaitingAlertsReviews, false},
+		{"off", "off", WaitingAlertsOff, false},
+		{"invalid", "some", "", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			t.Setenv("HOME", tmpDir)
+			t.Setenv("ZEN_HOME", "")
+			zenDir := filepath.Join(tmpDir, ".zen")
+			os.MkdirAll(zenDir, 0o755)
+			yamlContent := "repos:\n  mono:\n    full_name: chainguard-dev/mono\n    base_path: /tmp/mono\n"
+			if tt.value != "" {
+				yamlContent += "watch:\n  waiting_alerts: " + tt.value + "\n"
+			}
+			os.WriteFile(filepath.Join(zenDir, "config.yaml"), []byte(yamlContent), 0o644)
+
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.Watch.WaitingAlerts != tt.want {
+				t.Errorf("WaitingAlerts = %q, want %q", cfg.Watch.WaitingAlerts, tt.want)
+			}
+		})
+	}
+}

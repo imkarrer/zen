@@ -58,6 +58,7 @@ watch:
   concurrency: 2                # Parallel worktree setups
   max_retries: 5                # Max retry attempts for git failures
   review_sessions: false        # Register an agent-deck session per review request (needs terminal: agent-deck)
+  waiting_alerts: all           # "Claude is waiting" alerts: all, reviews (PR reviews only), or off
 
 # Slack task watcher (opt-in, off by default) — see "Slack task watcher" below.
 slack:
@@ -77,6 +78,10 @@ On each poll, setup re-runs if GitHub's head SHA differs from the worktree. Line
 With `terminal: agent-deck`, `watch.review_sessions: true` makes a review request show up in agent-deck by itself. For every PR in a configured repo where you are a requested reviewer, the daemon creates the review worktree, whoever the author is, rather than only for `authors:`. It then registers an agent-deck session for it in the `zen` group, titled after the worktree. The session runs the same command `zen review` would launch, but is not started: it waits in agent-deck's list (shown as stopped or errored until started) and no agent runs until you start it.
 
 Each review request gets a session once. A worktree the daemon creates is registered straight away; one that already existed, such as a review prepared before the setting was turned on, is registered on the next poll. The daemon records this in `last_check.json`, so a session you delete in agent-deck does not come back. When cleanup removes a merged review's worktree, it also removes that worktree's agent-deck session, unless its agent is still running. Setting `review_sessions` with any other terminal is a config error.
+
+## Waiting alerts
+
+Every `session_scan_interval`, the daemon checks the newest agent session in each worktree of your configured repos, whether zen launched it or not. When one goes from running to idle, it sends a "Claude is waiting" desktop alert, at most once per session every 5 minutes. `watch.waiting_alerts` limits these: `all` (the default) alerts for every worktree, `reviews` only for PR review worktrees, and `off` sends none. It does not affect new-review-request alerts or the Slack task watcher's DM. With `terminal: agent-deck`, agent-deck already shows each session's waiting state, so `off` avoids a second signal.
 
 ## Merged-review cleanup
 
