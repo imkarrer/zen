@@ -75,9 +75,11 @@ func ScanSessions(cfg *config.Config, idleThreshold time.Duration) {
 				}
 				if time.Since(lastTime) >= sessionNotifyDebounce {
 					resumeCmd := sessionResumeCmd(wt)
-					if err := notify.SessionWaiting(wt.Name, shortenedModel, resumeCmd); err != nil {
-						fmt.Printf("[%s] Session notify error for %s: %v\n",
-							time.Now().Format(time.RFC3339), wt.Name, err)
+					if alertWaiting(cfg.Watch.WaitingAlerts, wt) {
+						if err := notify.SessionWaiting(wt.Name, shortenedModel, resumeCmd); err != nil {
+							fmt.Printf("[%s] Session notify error for %s: %v\n",
+								time.Now().Format(time.RFC3339), wt.Name, err)
+						}
 					}
 					if SlackReadyHook != nil {
 						SlackReadyHook(wt.Path, wt.Name, resumeCmd)
@@ -118,4 +120,18 @@ func sessionResumeCmd(wt worktree.Worktree) string {
 		return fmt.Sprintf("%s review resume %d", zenBin, wt.PRNumber)
 	}
 	return fmt.Sprintf("%s work resume %s", zenBin, wt.Name)
+}
+
+// alertWaiting reports whether watch.waiting_alerts allows a "Claude is
+// waiting" desktop alert for a session in wt. It gates only the desktop
+// alert: the Slack ready hook still fires for every transition.
+func alertWaiting(mode string, wt worktree.Worktree) bool {
+	switch mode {
+	case config.WaitingAlertsOff:
+		return false
+	case config.WaitingAlertsReviews:
+		return wt.Type == worktree.TypePRReview
+	default:
+		return true
+	}
 }

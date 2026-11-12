@@ -89,10 +89,22 @@ type WatchConfig struct {
 	MaxRetries          int    `yaml:"max_retries"`           // default 5
 	DigestInterval      string `yaml:"digest_interval"`       // "" = disabled, e.g. "2h"
 
+	// WaitingAlerts picks which "Claude is waiting" desktop alerts the
+	// session scan sends: "all" (default), "reviews" for PR review worktrees
+	// only, or "off".
+	WaitingAlerts string `yaml:"waiting_alerts"`
+
 	// Deprecated: merged-review cleanup is gated by CleanupAfterMerge. Still
 	// parsed so existing config files load; the daemon no longer reads it.
 	CleanupAfterDays int `yaml:"cleanup_after_days,omitempty"`
 }
+
+// Values for WatchConfig.WaitingAlerts.
+const (
+	WaitingAlertsAll     = "all"
+	WaitingAlertsReviews = "reviews"
+	WaitingAlertsOff     = "off"
+)
 
 // DispatchIntervalDuration returns the dispatch interval as a time.Duration,
 // falling back to the default of 10 seconds.
@@ -234,6 +246,13 @@ func Load() (*Config, error) {
 	}
 	if cfg.Terminal != "iterm" && cfg.Terminal != "ghostty" && cfg.Terminal != "kitty" && cfg.Terminal != "macos" {
 		return nil, fmt.Errorf("invalid terminal type %q: must be \"iterm\", \"ghostty\", \"kitty\", or \"macos\"", cfg.Terminal)
+	}
+	switch cfg.Watch.WaitingAlerts {
+	case "":
+		cfg.Watch.WaitingAlerts = WaitingAlertsAll
+	case WaitingAlertsAll, WaitingAlertsReviews, WaitingAlertsOff:
+	default:
+		return nil, fmt.Errorf("invalid watch.waiting_alerts %q: must be \"all\", \"reviews\", or \"off\"", cfg.Watch.WaitingAlerts)
 	}
 	if cfg.Repos == nil {
 		cfg.Repos = make(map[string]RepoConfig)

@@ -57,6 +57,7 @@ watch:
   session_scan_interval: "10s"  # How often to scan Claude session states
   concurrency: 2                # Parallel worktree setups
   max_retries: 5                # Max retry attempts for git failures
+  waiting_alerts: all           # "Claude is waiting" alerts: all, reviews (PR reviews only), or off
 
 # Slack task watcher (opt-in, off by default) — see "Slack task watcher" below.
 slack:
@@ -70,6 +71,10 @@ slack:
 The daemon re-reads `config.yaml` on every poll tick. Changes to `poll_interval`, `authors`, `repos`, and other settings take effect without restarting.
 
 On each poll, setup re-runs if GitHub's head SHA differs from the worktree. Linear updates fast-forward. Local edits and a live agent are left alone. A head that cannot be fast-forwarded onto — rewritten, or behind the worktree — waits for `zen review`, which asks before `reset --hard` and only from a terminal.
+
+## Waiting alerts
+
+Every `session_scan_interval`, the daemon checks the newest agent session in each worktree of your configured repos, whether zen launched it or not. When one goes from running to idle, it sends a "Claude is waiting" desktop alert, at most once per session every 5 minutes. `watch.waiting_alerts` limits these: `all` (the default) alerts for every worktree, `reviews` only for PR review worktrees, and `off` sends none. It does not affect new-review-request alerts or the Slack task watcher's DM. With `terminal: agent-deck`, agent-deck already shows each session's waiting state, so `off` avoids a second signal.
 
 ## Merged-review cleanup
 
