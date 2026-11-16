@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/mgreau/zen/internal/agent"
@@ -131,27 +130,55 @@ func removalDirty(worktreePath string, owned map[string]struct{}) (bool, error) 
 		return dirty, err
 	}
 
-	for _, args := range [][]string{
-		{"ls-files", "--others", "--exclude-standard", "-z"},
-		{"ls-files", "--others", "--ignored", "--exclude-standard", "-z"},
+	for _, pass := range []struct {
+		args    []string
+		ignored bool
+	}{
+		{args: []string{"ls-files", "--others", "--exclude-standard", "-z"}},
+		{args: []string{"ls-files", "--others", "--ignored", "--exclude-standard", "-z"}, ignored: true},
 	} {
-		cmd := exec.Command("git", args...)
+		cmd := exec.Command("git", pass.args...)
 		cmd.Dir = worktreePath
 		out, err := cmd.Output()
 		if err != nil {
 			return false, fmt.Errorf("inspect untracked files: %w", err)
 		}
 		for _, raw := range bytes.Split(out, []byte{0}) {
-			path := string(raw)
+			path := filepath.ToSlash(string(raw))
 			if path == "" {
 				continue
 			}
-			if _, ok := owned[filepath.ToSlash(path)]; !ok {
-				return true, nil
+			if _, ok := owned[path]; ok {
+				continue
 			}
+			if pass.ignored && regenerable(worktreePath, path) {
+				continue
+			}
+			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// regenerable reports whether path, an ignored file, is output a tool
+// rebuilds on demand, so removal may discard it: Flox's per-environment
+// cache, log and run directories, Python bytecode caches, and Nix build
+// result links at the top of the worktree. Any other ignored file, such as
+// a .env, still blocks removal.
+func regenerable(worktreePath, path string) bool {
+	for _, dir := range []string{".flox/cache/", ".flox/log/", ".flox/run/"} {
+		if strings.HasPrefix(path, dir) {
+			return true
+		}
+	}
+	if strings.HasPrefix(path, "__pycache__/") || strings.Contains(path, "/__pycache__/") {
+		return true
+	}
+	if path == "result" || (strings.HasPrefix(path, "result-") && !strings.Contains(path, "/")) {
+		target, err := os.Readlink(filepath.Join(worktreePath, path))
+		return err == nil && strings.HasPrefix(target, "/nix/store/")
+	}
+	return false
 }
 
 type contextSnapshot struct {
@@ -263,10 +290,49 @@ func verifyReviewHEAD(ctx context.Context, originPath, worktreePath string, prNu
 	if contained {
 		return nil
 	}
-	if n, err := countCommits(worktreePath, prHead+"..HEAD"); err == nil {
-		return fmt.Errorf("%w: HEAD has %d commit(s) not in PR head %s", ErrWorktreeLocalCommits, n, abbrev(prHead))
+	n, err := localCommits(worktreePath, prHead)
+	if err != nil {
+		return fmt.Errorf("%w: HEAD is not in PR head %s: %v", ErrWorktreeLocalCommits, abbrev(prHead), err)
 	}
-	return fmt.Errorf("%w: HEAD is not in PR head %s", ErrWorktreeLocalCommits, abbrev(prHead))
+	if n == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: HEAD has %d commit(s) not in PR head %s", ErrWorktreeLocalCommits, n, abbrev(prHead))
+}
+
+// localCommits counts the commits in prHead..HEAD that may have been made in
+// this checkout: those no remote-tracking ref reaches and whose committer is
+// the user Git commits as here. A review left on a head the author later
+// force-pushed away has commits beyond the final head, but they were fetched
+// from GitHub, so the author or GitHub is their committer. A rebase or
+// cherry-pick done here makes the reviewer the committer, so it still counts.
+// With no user.email configured every such commit counts.
+func localCommits(worktreePath, prHead string) (int, error) {
+	cmd := exec.Command("git", "config", "user.email")
+	cmd.Dir = worktreePath
+	out, err := cmd.Output()
+	var exitErr *exec.ExitError
+	if err != nil && !(errors.As(err, &exitErr) && exitErr.ExitCode() == 1) {
+		return 0, fmt.Errorf("git config user.email: %w", err)
+	}
+	user := strings.TrimSpace(string(out))
+
+	cmd = exec.Command("git", "log", "--format=%ce", "HEAD", "^"+prHead, "--not", "--remotes")
+	cmd.Dir = worktreePath
+	out, err = cmd.Output()
+	if err != nil {
+		return 0, fmt.Errorf("git log: %w", err)
+	}
+	n := 0
+	for _, committer := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if committer == "" {
+			continue
+		}
+		if user == "" || strings.EqualFold(committer, user) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // checkedOutBranch returns the branch checked out in worktreePath, or
@@ -304,16 +370,6 @@ func isAncestor(worktreePath, commit, descendant string) (bool, error) {
 		return false, fmt.Errorf("git merge-base --is-ancestor: %w", err)
 	}
 	return true, nil
-}
-
-func countCommits(worktreePath, revRange string) (int, error) {
-	cmd := exec.Command("git", "rev-list", "--count", revRange)
-	cmd.Dir = worktreePath
-	out, err := cmd.Output()
-	if err != nil {
-		return 0, err
-	}
-	return strconv.Atoi(strings.TrimSpace(string(out)))
 }
 
 func abbrev(sha string) string {

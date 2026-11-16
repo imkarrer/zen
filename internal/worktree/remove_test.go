@@ -54,6 +54,25 @@ func TestRemove(t *testing.T) {
 			runRemovalGit(t, path, "commit", "-m", "ignore generated log")
 			writeRemovalFile(t, path, "ignored.log", "keep me")
 		}, wantErr: ErrWorktreeDirty},
+		{name: "regenerable flox, python and nix output", prepare: func(t *testing.T, path string) {
+			ignoreInRemoval(t, path, ".flox/cache/", ".flox/log/", ".flox/run/", "__pycache__/", "result*")
+			writeRemovalFile(t, path, ".flox/cache/upgrade-checks.json", "{}")
+			writeRemovalFile(t, path, ".flox/log/executive.1.log", "log")
+			writeRemovalFile(t, path, ".flox/run/aarch64-darwin.dev", "run")
+			writeRemovalFile(t, path, "evals/tests/__pycache__/x.pyc", "pyc")
+			if err := os.Symlink("/nix/store/0000-result", filepath.Join(path, "result-plugin")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "ignored result that is not a nix link", prepare: func(t *testing.T, path string) {
+			ignoreInRemoval(t, path, "result*")
+			writeRemovalFile(t, path, "result-notes", "keep me")
+		}, wantErr: ErrWorktreeDirty},
+		{name: "ignored file beside regenerable output", prepare: func(t *testing.T, path string) {
+			ignoreInRemoval(t, path, ".flox/cache/", ".env")
+			writeRemovalFile(t, path, ".flox/cache/upgrade-checks.json", "{}")
+			writeRemovalFile(t, path, ".env", "TOKEN=keep")
+		}, wantErr: ErrWorktreeDirty},
 		{name: "claude context", prepare: func(t *testing.T, path string) {
 			if _, err := agent.New(agent.Claude, "").InjectContext(path, "generated"); err != nil {
 				t.Fatal(err)
@@ -235,6 +254,39 @@ func TestRemoveReview(t *testing.T) {
 			runRemovalGit(t, path, "checkout", "-b", "mgreau/pr-123")
 			return ""
 		}, wantErr: ErrNotPRReview},
+		{name: "on a head the author force-pushed away", prepare: func(t *testing.T, upstream, origin, path string) string {
+			// The review was refreshed onto an author commit, then the
+			// author rewrote the branch and the old commit left every ref.
+			runRemovalGit(t, upstream, "checkout", "author")
+			writeRemovalFile(t, upstream, "tracked", "first try")
+			runRemovalGit(t, upstream, "commit", "-am", "first try", "--author", "Author <author@example.com>")
+			runRemovalGit(t, upstream, "-c", "user.email=author@example.com", "commit", "--amend", "--no-edit", "--reset-author")
+			runRemovalGit(t, upstream, "update-ref", "refs/pull/123/head", "HEAD")
+			runRemovalGit(t, path, "fetch", "origin", "pull/123/head")
+			runRemovalGit(t, path, "reset", "--hard", "FETCH_HEAD")
+			runRemovalGit(t, upstream, "reset", "--hard", "HEAD~1")
+			runRemovalGit(t, upstream, "-c", "user.email=author@example.com", "commit", "--allow-empty", "-m", "second try")
+			runRemovalGit(t, upstream, "update-ref", "refs/pull/123/head", "HEAD")
+			runRemovalGit(t, upstream, "checkout", "main")
+			runRemovalGit(t, origin, "fetch", "origin", "+author:refs/remotes/origin/author")
+			return revParse(t, upstream, "refs/pull/123/head")
+		}},
+		{name: "beyond PR head on a commit a remote branch has", prepare: func(t *testing.T, upstream, origin, path string) string {
+			runRemovalGit(t, upstream, "checkout", "author")
+			commitRemovalFile(t, upstream, "tracked", "pushed but not in the PR ref")
+			runRemovalGit(t, upstream, "checkout", "main")
+			runRemovalGit(t, origin, "fetch", "origin")
+			runRemovalGit(t, path, "reset", "--hard", "origin/author")
+			return ""
+		}},
+		{name: "someone else's commit with no user.email still blocks", prepare: func(t *testing.T, _, origin, path string) string {
+			t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			runRemovalGit(t, origin, "config", "--unset", "user.email")
+			writeRemovalFile(t, path, "tracked", "unknown")
+			runRemovalGit(t, path, "-c", "user.email=other@example.com", "commit", "-am", "unknown")
+			return ""
+		}, wantErr: ErrWorktreeLocalCommits},
 		{name: "untracked file still blocks", prepare: func(t *testing.T, _, _, path string) string {
 			writeRemovalFile(t, path, "notes.txt", "keep me")
 			return ""
@@ -305,4 +357,23 @@ func runRemovalGit(t *testing.T, directory string, args ...string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
 	}
+}
+
+// ignoreInRemoval commits a .gitignore listing patterns.
+func ignoreInRemoval(t *testing.T, path string, patterns ...string) {
+	t.Helper()
+	writeRemovalFile(t, path, ".gitignore", strings.Join(patterns, "\n")+"\n")
+	runRemovalGit(t, path, "add", ".gitignore")
+	runRemovalGit(t, path, "commit", "-m", "ignore generated output")
+}
+
+func revParse(t *testing.T, dir, rev string) string {
+	t.Helper()
+	cmd := exec.Command("git", "rev-parse", rev)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse %s: %v", rev, err)
+	}
+	return strings.TrimSpace(string(out))
 }
