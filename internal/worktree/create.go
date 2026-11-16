@@ -79,11 +79,17 @@ func EnsureNestedExcluded(originPath, worktreePath string) {
 // before), as opposed to PR review worktrees which check out an existing
 // remote branch/ref instead.
 //
-// Uses --no-checkout + a separate checkout to avoid "Could not write new
-// index file" on large repos (13K+ files) — the two-step approach handles
-// the index write reliably. Serializes on GitMu to prevent concurrent
-// index.lock conflicts across worktree operations on the same origin repo.
+// Adds the worktree with --no-checkout and checks it out as a separate step,
+// so a failed checkout is reported on its own and the partial worktree is
+// cleaned up. Serializes on RepoLock and GitMu to prevent concurrent
+// index.lock conflicts across worktree operations on the same origin repo,
+// in this process or another.
 func CreateFromMain(originPath, worktreePath, worktreeName, branch string) error {
+	repoLock, err := AcquireRepoLock(originPath)
+	if err != nil {
+		return err
+	}
+	defer repoLock.Release()
 	GitMu.Lock()
 	defer GitMu.Unlock()
 
@@ -109,10 +115,6 @@ func CreateFromMain(originPath, worktreePath, worktreeName, branch string) error
 		return fmt.Errorf("git checkout in worktree: %w: %s", err, string(out))
 	}
 
-	// Clean stale index.lock (only if holding process is dead)
-	lockFile := filepath.Join(originPath, ".git", "worktrees", worktreeName, "index.lock")
-	RemoveStaleLock(lockFile, worktreeName)
-
 	return nil
 }
 
@@ -135,11 +137,17 @@ func CreateFromMain(originPath, worktreePath, worktreeName, branch string) error
 // a fast pre-lock existence check too (to skip the wait entirely in the
 // common case) can still do their own os.Stat before calling.
 //
-// Uses --no-checkout + a separate checkout to avoid "Could not write new
-// index file" on large repos (13K+ files) -- the two-step approach handles
-// the index write reliably. Serializes on GitMu to prevent concurrent
-// index.lock conflicts across worktree operations on the same origin repo.
+// Adds the worktree with --no-checkout and checks it out as a separate step,
+// so a failed checkout is reported on its own and the partial worktree is
+// cleaned up. Serializes on RepoLock and GitMu to prevent concurrent
+// index.lock conflicts across worktree operations on the same origin repo,
+// in this process or another.
 func CreateFromPR(ctx context.Context, originPath, worktreePath, worktreeName string, prNumber int, timeout time.Duration, log Logger) error {
+	repoLock, err := AcquireRepoLock(originPath)
+	if err != nil {
+		return err
+	}
+	defer repoLock.Release()
 	GitMu.Lock()
 	defer GitMu.Unlock()
 
@@ -167,9 +175,6 @@ func CreateFromPR(ctx context.Context, originPath, worktreePath, worktreeName st
 	}
 
 	EnsureNestedExcluded(originPath, worktreePath)
-
-	lockFile := filepath.Join(originPath, ".git", "worktrees", worktreeName, "index.lock")
-	RemoveStaleLock(lockFile, worktreeName)
 
 	return nil
 }
