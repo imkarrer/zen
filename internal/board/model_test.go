@@ -124,3 +124,31 @@ func TestReviewKeyV_unconfiguredRepoExplainsInsteadOfLaunching(t *testing.T) {
 		t.Errorf("statusMsg = %q, want it to say the repo is not configured", got)
 	}
 }
+
+// bubbles/table's SetHeight counts the header line, so a table sized to its
+// row count used to hide its last row: a board listing 20 PRs showed 19.
+func TestResize_tableShowsEveryRowWhenThereIsRoom(t *testing.T) {
+	m := NewModel(watchedConfig())
+	m.height = 80
+	m.myRows = make([]MyPRRow, 6)
+	m.reviewRows = make([]ReviewRow, 5)
+	m.watchRows = make([]ReviewRow, 6)
+	for i := range m.watchRows {
+		m.watchRows[i].Number = i + 1
+	}
+	m.resize()
+
+	for name, got := range map[string]int{
+		"my":     m.myTable.Height(),
+		"review": m.reviewTable.Height(),
+		"watch":  m.watchTable.Height(),
+	} {
+		want := map[string]int{"my": 6, "review": 5, "watch": 6}[name]
+		if got < want {
+			t.Errorf("%s table shows %d rows, want %d", name, got, want)
+		}
+	}
+	if !strings.Contains(m.View(), "#6") {
+		t.Error("last watched row not rendered")
+	}
+}

@@ -421,20 +421,24 @@ func (m *Model) resize() {
 		counts = append(counts, len(m.watchRows))
 		chrome += watchChromeLines
 	}
+	// Each table also draws a header line, which bubbles/table counts in
+	// SetHeight; splitHeights works in row lines, so add it back per table.
+	const headerLines = 1
+	chrome += headerLines * len(counts)
 	avail := m.height - chrome
 	if avail < len(counts)*minTableHeight {
 		avail = len(counts) * minTableHeight
 	}
 	heights := splitHeights(avail, counts)
 
-	m.myTable.SetHeight(heights[0])
-	m.reviewTable.SetHeight(heights[1])
+	m.myTable.SetHeight(heights[0] + headerLines)
+	m.reviewTable.SetHeight(heights[1] + headerLines)
 	m.myTable.SetColumns(myColumns(m.width, myRepoColWidth(m.myRows)))
 	m.reviewTable.SetColumns(reviewColumns(m.width, reviewRepoColWidth(m.reviewRows)))
 	m.myTable.SetWidth(m.width)
 	m.reviewTable.SetWidth(m.width)
 	if m.showWatch {
-		m.watchTable.SetHeight(heights[2])
+		m.watchTable.SetHeight(heights[2] + headerLines)
 		m.watchTable.SetColumns(reviewColumns(m.width, reviewRepoColWidth(m.watchRows)))
 		m.watchTable.SetWidth(m.width)
 	}
