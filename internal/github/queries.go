@@ -196,6 +196,44 @@ func buildApprovedUnmergedQuery(repoFilter string, ignoreDrafts bool) string {
 	return fmt.Sprintf("is:pr is:open author:@me review:approved%s%s", repoClause, draftClause)
 }
 
+// buildAuthorPRsQuery returns the GitHub search query for GetOpenPRsByAuthors.
+// Repeated author: qualifiers are ORed by GitHub search, so one query covers
+// every author in the list.
+func buildAuthorPRsQuery(fullRepo string, authors []string, ignoreDrafts bool) string {
+	var b strings.Builder
+	b.WriteString("is:pr is:open repo:")
+	b.WriteString(fullRepo)
+	for _, a := range authors {
+		if a = strings.TrimSpace(a); a != "" {
+			b.WriteString(" author:")
+			b.WriteString(a)
+		}
+	}
+	if ignoreDrafts {
+		b.WriteString(" draft:false")
+	}
+	return b.String()
+}
+
+// GetOpenPRsByAuthors fetches open PRs in fullRepo opened by any of authors,
+// in one paginated search. An empty authors list returns nothing rather than
+// every open PR in the repo.
+func GetOpenPRsByAuthors(ctx context.Context, fullRepo string, authors []string, ignoreDrafts bool) ([]ReviewRequest, error) {
+	var named []string
+	for _, a := range authors {
+		if a = strings.TrimSpace(a); a != "" {
+			named = append(named, a)
+		}
+	}
+	if fullRepo == "" || len(named) == 0 {
+		return nil, nil
+	}
+	authors = named
+	ctx, cancel := withTimeout(ctx)
+	defer cancel()
+	return searchReviewRequests(ctx, buildAuthorPRsQuery(fullRepo, authors, ignoreDrafts))
+}
+
 // searchPageSize is the page size for PR searches. GitHub caps search
 // connections at 100; 50 keeps each response small.
 const searchPageSize = 50

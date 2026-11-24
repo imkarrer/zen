@@ -14,7 +14,8 @@ var boardCmd = &cobra.Command{
 	Long: `Live view of your open PRs and pending review requests.
 
 Runs as an interactive terminal view, refreshing every 30 seconds (or on
-demand with 'r'). Shows two tables:
+demand with 'r'). Shows two tables, and a third when a repo sets
+watch_authors:
 
   My Pull Requests   Your open PRs in every repo, configured or not (one
                       configured shows its short name, any other its
@@ -29,13 +30,17 @@ demand with 'r'). Shows two tables:
                       configured authors, PRs touching a configured
                       watch_paths entry, then everyone else — newest first
                       within each tier.
+  Watched Authors    Open PRs from each repo's watch_authors, whether or
+                      not they request your review, newest first. A PR
+                      that does request it is listed under Needs Your
+                      Review instead.
 
 Keys:
   up/down, j/k   move selection
   tab            switch between tables
   enter, o       open the selected PR in your browser
   v              start/resume a review for the selected PR (Needs Your
-                 Review table only)
+                 Review and Watched Authors tables)
   s              show/hide the first 20 lines of the selected PR's
                  description (fetched on demand)
   r              refresh now

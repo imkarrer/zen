@@ -227,6 +227,32 @@ type RepoConfig struct {
 	WorktreeLayout string `yaml:"worktree_layout"`
 	Stack          string `yaml:"stack"`        // overrides the top-level stack for this repo
 	ReviewStack    string `yaml:"review_stack"` // overrides stack for PR reviews in this repo
+	// WatchAuthors lists GitHub logins whose open PRs in this repo the board
+	// shows in its Watched Authors table, whether or not they request your
+	// review. Unlike the top-level authors list, it does not change what the
+	// daemon creates worktrees for.
+	WatchAuthors []string `yaml:"watch_authors"`
+}
+
+// WatchedRepo is one configured repo with a non-empty watch_authors list.
+type WatchedRepo struct {
+	Name     string // config short name
+	FullName string // owner/repo
+	Authors  []string
+}
+
+// WatchedRepos returns every configured repo that has watch_authors, sorted
+// by short name so the board queries and lists them in a stable order.
+func (c *Config) WatchedRepos() []WatchedRepo {
+	var out []WatchedRepo
+	for name, repo := range c.Repos {
+		if len(repo.WatchAuthors) == 0 || repo.FullName == "" {
+			continue
+		}
+		out = append(out, WatchedRepo{Name: name, FullName: repo.FullName, Authors: repo.WatchAuthors})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // Dir is the zen config and state directory. ZEN_HOME overrides the default

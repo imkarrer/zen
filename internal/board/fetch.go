@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -54,6 +55,7 @@ type ReviewRow struct {
 	Age     string
 	ageSecs int
 	tier    int
+	Draft   bool
 }
 
 // ageOf formats how long ago an RFC3339 timestamp was, using the same
@@ -138,6 +140,7 @@ func reviewRows(cfg *config.Config, reqs []github.ReviewRequest) []ReviewRow {
 			URL:     rr.URL,
 			Age:     age,
 			ageSecs: ageSecs,
+			Draft:   rr.IsDraft,
 		})
 	}
 	return rows
@@ -230,4 +233,51 @@ func touchesWatchPaths(files, watchPaths []string) bool {
 		}
 	}
 	return false
+}
+
+// FetchWatchedPRs fetches open PRs opened by each configured repo's
+// watch_authors, one search per watched repo, newest first. A repo whose
+// search fails is skipped and its error returned alongside the rows from the
+// repos that succeeded, so one bad repo does not blank the table.
+func FetchWatchedPRs(ctx context.Context, cfg *config.Config) ([]ReviewRow, error) {
+	watched := cfg.WatchedRepos()
+	if len(watched) == 0 {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	defer cancel()
+
+	var all []github.ReviewRequest
+	var errs []error
+	for _, w := range watched {
+		prs, err := github.GetOpenPRsByAuthors(ctx, w.FullName, w.Authors, cfg.IgnoreDrafts)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("watched PRs in %s: %w", w.FullName, err))
+			continue
+		}
+		all = append(all, prs...)
+	}
+	rows := reviewRows(cfg, all)
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ageSecs < rows[j].ageSecs })
+	return rows, errors.Join(errs...)
+}
+
+// withoutReviewRequests drops watched rows that already appear in Needs Your
+// Review, so a PR that asks for your review is listed once, where `v` and
+// the review tiers apply to it.
+func withoutReviewRequests(watched, reviews []ReviewRow) []ReviewRow {
+	if len(watched) == 0 || len(reviews) == 0 {
+		return watched
+	}
+	inReview := make(map[string]bool, len(reviews))
+	for _, r := range reviews {
+		inReview[r.URL] = true
+	}
+	out := make([]ReviewRow, 0, len(watched))
+	for _, w := range watched {
+		if !inReview[w.URL] {
+			out = append(out, w)
+		}
+	}
+	return out
 }

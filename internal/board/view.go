@@ -57,6 +57,13 @@ func (m Model) View() string {
 	b.WriteString(m.reviewTable.View())
 	b.WriteString("\n\n")
 
+	if m.showWatch {
+		b.WriteString(sectionStyle(m.focus == FocusWatch).Render(fmt.Sprintf("WATCHED AUTHORS (%d)", len(m.watchRows))))
+		b.WriteString("\n")
+		b.WriteString(m.watchTable.View())
+		b.WriteString("\n\n")
+	}
+
 	if m.summaryOpen {
 		b.WriteString(m.renderSummaryPanel())
 		b.WriteString("\n\n")

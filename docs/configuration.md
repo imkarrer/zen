@@ -116,6 +116,22 @@ repos:
 
 All repos and authors must be configured — there are no hardcoded defaults.
 
+### Watching authors in one repo
+
+`watch_authors` lists people whose open PRs in that repo `zen board` shows in a **Watched Authors** table, whether or not they have asked for your review:
+
+```yaml
+repos:
+  floxhub:
+    full_name: flox/floxhub
+    base_path: ~/src
+    watch_authors:
+      - gilmishal
+      - nicklewis
+```
+
+It costs one GitHub search per watched repo per board refresh. A PR that also requests your review is listed once, under Needs Your Review. `ignore_drafts` applies. Unlike the top-level `authors` list, `watch_authors` does not change what the daemon creates worktrees for. The Watched Authors table is hidden when no repo sets it.
+
 ### Adding a repo without editing YAML
 
 `zen repo add` registers a clone in one shot. Run it with no arguments from inside the clone (or pass the clone's path):

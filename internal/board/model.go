@@ -17,12 +17,15 @@ import (
 // refreshInterval is how often the board refetches data on its own.
 const refreshInterval = 30 * time.Second
 
-// Focus identifies which of the two tables has keyboard focus.
+// Focus identifies which table has keyboard focus.
 type Focus int
 
 const (
 	FocusMyPRs Focus = iota
 	FocusReview
+	// FocusWatch is the Watched Authors table, shown only when some repo
+	// has watch_authors configured.
+	FocusWatch
 )
 
 // Column sizing. Each column also costs 2 chars of padding (1 per side,
@@ -45,17 +48,25 @@ const (
 	// title/status, blank, 2 section headers, 2 blanks, status/error line,
 	// footer.
 	chromeLines = 8
+	// watchChromeLines is what the Watched Authors table adds besides its
+	// rows: its section header and the blank line after it.
+	watchChromeLines = 2
 )
 
-// Model is the zen board bubbletea model: two live tables — the user's own
-// open PRs grouped by status, and PRs they've been asked to review.
+// Model is the zen board bubbletea model: live tables of the user's own open
+// PRs grouped by status, PRs they've been asked to review, and — when some
+// repo has watch_authors — open PRs from those authors.
 type Model struct {
 	cfg *config.Config
 
 	myTable     table.Model
 	reviewTable table.Model
+	watchTable  table.Model
 	myRows      []MyPRRow
 	reviewRows  []ReviewRow
+	watchRows   []ReviewRow
+	// showWatch is whether any repo has watch_authors, fixed at NewModel.
+	showWatch bool
 
 	focus       Focus
 	loading     bool
@@ -93,10 +104,18 @@ func NewModel(cfg *config.Config) Model {
 	)
 	reviewTable.SetStyles(styles)
 
+	watchTable := table.New(
+		table.WithColumns(reviewColumns(defaultWidth, repoColWidth)),
+		table.WithHeight(defaultTableHeight),
+	)
+	watchTable.SetStyles(styles)
+
 	m := Model{
 		cfg:         cfg,
 		myTable:     myTable,
 		reviewTable: reviewTable,
+		watchTable:  watchTable,
+		showWatch:   len(cfg.WatchedRepos()) > 0,
 		focus:       FocusMyPRs,
 		loading:     true,
 		width:       defaultWidth,
@@ -104,6 +123,7 @@ func NewModel(cfg *config.Config) Model {
 	}
 	m.myTable.SetWidth(defaultWidth)
 	m.reviewTable.SetWidth(defaultWidth)
+	m.watchTable.SetWidth(defaultWidth)
 	return m
 }
 
@@ -117,6 +137,7 @@ const (
 type dataMsg struct {
 	myRows     []MyPRRow
 	reviewRows []ReviewRow
+	watchRows  []ReviewRow
 	err        error
 }
 
@@ -133,11 +154,11 @@ func fetchCmd(cfg *config.Config) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		var myRows []MyPRRow
-		var reviewRows []ReviewRow
-		var err1, err2 error
+		var reviewRows, watchRows []ReviewRow
+		var err1, err2, err3 error
 
 		var wg sync.WaitGroup
-		wg.Add(2)
+		wg.Add(3)
 		go func() {
 			defer wg.Done()
 			myRows, err1 = FetchMyPRs(ctx, cfg)
@@ -146,13 +167,20 @@ func fetchCmd(cfg *config.Config) tea.Cmd {
 			defer wg.Done()
 			reviewRows, err2 = FetchReviewRequests(ctx, cfg)
 		}()
+		go func() {
+			defer wg.Done()
+			watchRows, err3 = FetchWatchedPRs(ctx, cfg)
+		}()
 		wg.Wait()
 
 		err := err1
 		if err == nil {
 			err = err2
 		}
-		return dataMsg{myRows: myRows, reviewRows: reviewRows, err: err}
+		if err == nil {
+			err = err3
+		}
+		return dataMsg{myRows: myRows, reviewRows: reviewRows, watchRows: watchRows, err: err}
 	}
 }
 
@@ -206,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.myRows = msg.myRows
 		m.reviewRows = msg.reviewRows
+		m.watchRows = withoutReviewRequests(msg.watchRows, msg.reviewRows)
 		// Row counts just changed, so table heights (computed from row
 		// counts in resize) need recomputing too, not just cell content.
 		m.resize()
@@ -254,7 +283,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.statusMsg = ""
 			return m, openCmd(m.selectedURL())
 		case "v":
-			if m.focus == FocusReview {
+			if m.focus == FocusReview || m.focus == FocusWatch {
 				if row, ok := m.selectedReviewRow(); ok {
 					// A review worktree is made from the repo's local clone,
 					// which zen knows only for a configured repo.
@@ -287,24 +316,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmd tea.Cmd
-	if m.focus == FocusMyPRs {
-		m.myTable, cmd = m.myTable.Update(msg)
-	} else {
-		m.reviewTable, cmd = m.reviewTable.Update(msg)
-	}
+	t := m.focusedTable()
+	*t, cmd = t.Update(msg)
 	return m, cmd
 }
 
-func (m *Model) toggleFocus() {
-	if m.focus == FocusMyPRs {
-		m.focus = FocusReview
-		m.myTable.Blur()
-		m.reviewTable.Focus()
-	} else {
-		m.focus = FocusMyPRs
-		m.reviewTable.Blur()
-		m.myTable.Focus()
+// focusedTable is the table that currently has keyboard focus.
+func (m *Model) focusedTable() *table.Model {
+	switch m.focus {
+	case FocusReview:
+		return &m.reviewTable
+	case FocusWatch:
+		return &m.watchTable
+	default:
+		return &m.myTable
 	}
+}
+
+// toggleFocus moves focus to the next table shown, wrapping around; the
+// Watched Authors table is skipped when no repo has watch_authors.
+func (m *Model) toggleFocus() {
+	m.focusedTable().Blur()
+	switch m.focus {
+	case FocusMyPRs:
+		m.focus = FocusReview
+	case FocusReview:
+		if m.showWatch {
+			m.focus = FocusWatch
+		} else {
+			m.focus = FocusMyPRs
+		}
+	default:
+		m.focus = FocusMyPRs
+	}
+	m.focusedTable().Focus()
 }
 
 // closeSummary hides the summary panel and gives its reserved lines back to
@@ -353,29 +398,46 @@ func (m Model) selectedMyRow() (MyPRRow, bool) {
 	return m.myRows[i], true
 }
 
+// selectedReviewRow returns the selected row of whichever review-shaped
+// table has focus: Needs Your Review, or Watched Authors.
 func (m Model) selectedReviewRow() (ReviewRow, bool) {
-	i := m.reviewTable.Cursor()
-	if i < 0 || i >= len(m.reviewRows) {
+	t, rows := m.reviewTable, m.reviewRows
+	if m.focus == FocusWatch {
+		t, rows = m.watchTable, m.watchRows
+	}
+	i := t.Cursor()
+	if i < 0 || i >= len(rows) {
 		return ReviewRow{}, false
 	}
-	return m.reviewRows[i], true
+	return rows[i], true
 }
 
 // resize recomputes column widths and table heights for the current
 // terminal size, then rebuilds table content so truncation matches.
 func (m *Model) resize() {
-	avail := m.height - chromeLines - m.summaryChromeLines()
-	if avail < 2*minTableHeight {
-		avail = 2 * minTableHeight
+	counts := []int{len(m.myRows), len(m.reviewRows)}
+	chrome := chromeLines + m.summaryChromeLines()
+	if m.showWatch {
+		counts = append(counts, len(m.watchRows))
+		chrome += watchChromeLines
 	}
-	myHeight, reviewHeight := splitTableHeights(avail, len(m.myRows), len(m.reviewRows))
+	avail := m.height - chrome
+	if avail < len(counts)*minTableHeight {
+		avail = len(counts) * minTableHeight
+	}
+	heights := splitHeights(avail, counts)
 
-	m.myTable.SetHeight(myHeight)
-	m.reviewTable.SetHeight(reviewHeight)
+	m.myTable.SetHeight(heights[0])
+	m.reviewTable.SetHeight(heights[1])
 	m.myTable.SetColumns(myColumns(m.width, myRepoColWidth(m.myRows)))
 	m.reviewTable.SetColumns(reviewColumns(m.width, reviewRepoColWidth(m.reviewRows)))
 	m.myTable.SetWidth(m.width)
 	m.reviewTable.SetWidth(m.width)
+	if m.showWatch {
+		m.watchTable.SetHeight(heights[2])
+		m.watchTable.SetColumns(reviewColumns(m.width, reviewRepoColWidth(m.watchRows)))
+		m.watchTable.SetWidth(m.width)
+	}
 
 	m.refreshTableContent()
 }
@@ -401,49 +463,74 @@ func (m Model) panelContentLineCount() int {
 	return len(m.summaryLines)
 }
 
-// splitTableHeights allocates avail lines between the two tables based on
-// how many rows each actually has, so a short list doesn't reserve dead
-// space while a long list is starved for visible rows. Each table gets at
-// least minTableHeight and at most maxTableHeight from its own row count;
-// any leftover is handed out one line at a time to whichever table still
-// has rows hidden below its current allocation, alternating so it's split
-// fairly when both are still truncated. If neither has hidden rows, the
-// leftover goes unused rather than stretching an already-fully-shown table.
+// splitTableHeights is splitHeights for the two-table layout.
 func splitTableHeights(avail, myCount, reviewCount int) (myHeight, reviewHeight int) {
-	myWant := clampHeight(myCount)
-	reviewWant := clampHeight(reviewCount)
+	h := splitHeights(avail, []int{myCount, reviewCount})
+	return h[0], h[1]
+}
 
-	if myWant+reviewWant > avail {
-		total := myCount + reviewCount
-		if total == 0 {
-			half := avail / 2
-			return max(half, minTableHeight), max(avail-half, minTableHeight)
-		}
-		myHeight = max(avail*myCount/total, minTableHeight)
-		reviewHeight = max(avail-myHeight, minTableHeight)
-		return myHeight, reviewHeight
+// splitHeights allocates avail lines among tables based on how many rows
+// each actually has, so a short list doesn't reserve dead space while a long
+// list is starved for visible rows. Each table gets at least minTableHeight
+// and at most maxTableHeight from its own row count; any leftover is handed
+// out one line at a time, round-robin, to tables that still have rows hidden
+// below their current allocation. If none has hidden rows, the leftover goes
+// unused rather than stretching an already-fully-shown table. When even the
+// clamped wants exceed avail, lines are split in proportion to row counts,
+// the last table taking the remainder.
+func splitHeights(avail int, counts []int) []int {
+	n := len(counts)
+	heights := make([]int, n)
+	if n == 0 {
+		return heights
 	}
 
-	leftover := avail - (myWant + reviewWant)
-	myHidden := max(myCount-myWant, 0)
-	reviewHidden := max(reviewCount-reviewWant, 0)
-	for leftover > 0 && (myHidden > 0 || reviewHidden > 0) {
-		if myHidden > 0 {
-			myWant++
-			myHidden--
-			leftover--
-		}
-		if leftover == 0 {
-			break
-		}
-		if reviewHidden > 0 {
-			reviewWant++
-			reviewHidden--
-			leftover--
-		}
+	wantTotal, total := 0, 0
+	for i, c := range counts {
+		heights[i] = clampHeight(c)
+		wantTotal += heights[i]
+		total += c
 	}
 
-	return myWant, reviewWant
+	if wantTotal > avail {
+		used := 0
+		for i, c := range counts {
+			if i == n-1 {
+				heights[i] = max(avail-used, minTableHeight)
+				break
+			}
+			if total == 0 {
+				heights[i] = max(avail/n, minTableHeight)
+			} else {
+				heights[i] = max(avail*c/total, minTableHeight)
+			}
+			used += heights[i]
+		}
+		return heights
+	}
+
+	leftover := avail - wantTotal
+	hidden := make([]int, n)
+	anyHidden := false
+	for i, c := range counts {
+		hidden[i] = max(c-heights[i], 0)
+		anyHidden = anyHidden || hidden[i] > 0
+	}
+	for leftover > 0 && anyHidden {
+		anyHidden = false
+		for i := range heights {
+			if leftover == 0 {
+				break
+			}
+			if hidden[i] > 0 {
+				heights[i]++
+				hidden[i]--
+				leftover--
+			}
+			anyHidden = anyHidden || hidden[i] > 0
+		}
+	}
+	return heights
 }
 
 // clampHeight bounds a row count to [minTableHeight, maxTableHeight].
@@ -543,6 +630,28 @@ func (m *Model) refreshTableContent() {
 	}
 	m.reviewTable.SetRows(reviewTableRows)
 	fixStuckCursor(&m.reviewTable, len(reviewTableRows))
+
+	watchTableRows := make([]table.Row, len(m.watchRows))
+	for i, r := range m.watchRows {
+		watchTableRows[i] = table.Row{
+			watchStatusLabel(r.Draft),
+			fmt.Sprintf("#%d", r.Number),
+			r.Repo,
+			r.Title,
+			r.Author,
+			r.Age,
+		}
+	}
+	m.watchTable.SetRows(watchTableRows)
+	fixStuckCursor(&m.watchTable, len(watchTableRows))
+}
+
+// watchStatusLabel is the STATUS cell of a Watched Authors row.
+func watchStatusLabel(draft bool) string {
+	if draft {
+		return "📝 Draft"
+	}
+	return "👀 Open"
 }
 
 // fixStuckCursor works around a bubbles/table quirk: SetRows clamps the
